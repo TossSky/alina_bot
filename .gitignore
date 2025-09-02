@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+*.manifest
+*.spec
+
+# Virtual environment
+.venv/
+env/
+venv/
+ENV/
+*.envrc
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.DS_Store
+
+# Logs
+*.log
+logs/
+log/
+
+# Database
+*.db
+*.sqlite3
+
+# Local config & secrets
+.env
+.env.*
+config.json
+secrets.json
+
+# Cache
+.cache/
+.mypy_cache/
+.pytest_cache/
+coverage.xml
+htmlcov/
+
+# OS specific
+Thumbs.db
+.DS_Store
