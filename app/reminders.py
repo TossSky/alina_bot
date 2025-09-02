@@ -43,6 +43,8 @@ FALLBACKS = {
         "утро... кофе уже был?",
         "привет! как начался день?",
         "утро) что планируешь сегодня?",
+        "доброе утро! выспался?",
+        "утречко... как настроение?",
     ],
     "evening": [
         "как прошёл день?",
@@ -52,6 +54,8 @@ FALLBACKS = {
         "как день? всё ок?",
         "привет) что нового?",
         "как сегодня прошло?",
+        "вечер) как настроение?",
+        "как день прошёл? устал?",
     ],
     "checkin": [
         "привет) как ты?",
@@ -62,6 +66,8 @@ FALLBACKS = {
         "что делаешь?",
         "как ты там?",
         "привет) не потерялся?",
+        "хей) всё ок?",
+        "как поживаешь?",
     ]
 }
 
@@ -72,6 +78,7 @@ def _pick_fallback(rtype: str) -> str:
 
 # ----- job callback -----
 async def _send_reminder(context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет напоминание пользователю"""
     data = context.job.data or {}
     user_id = data.get("user_id")
     rtype = data.get("rtype", "checkin")
@@ -81,10 +88,9 @@ async def _send_reminder(context: ContextTypes.DEFAULT_TYPE):
     u = db.get_user(user_id)
     name = u.get("name") or ""
     style = u.get("style") or "gentle"
-    verbosity = u.get("verbosity") or "normal"
-
-    # Иногда используем простой фоллбек (в 70% случаев)
-    if random.random() < 0.7:
+    
+    # В 80% случаев используем простой фоллбек
+    if random.random() < 0.8:
         text = _pick_fallback(rtype)
     else:
         # Иногда генерируем через LLM для разнообразия
@@ -105,15 +111,19 @@ async def _send_reminder(context: ContextTypes.DEFAULT_TYPE):
 
         try:
             llm = _get_llm()
-            text = await llm.chat(msgs, temperature=0.95, max_tokens=80)
+            text = await llm.chat(msgs, temperature=0.95, max_tokens=80, verbosity="short")
             # Обрезаем, если слишком длинное
             if text and len(text) > 150:
                 text = text[:150].rsplit(" ", 1)[0] + "..."
         except Exception:
             text = _pick_fallback(rtype)
 
-    # Отправляем БЕЗ форматирования
-    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+    # Отправляем с форматированием
+    try:
+        await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+    except Exception:
+        # Если ошибка форматирования - отправляем без него
+        await context.bot.send_message(chat_id=chat_id, text=text)
 
 # ----- JobQueue glue -----
 def _job_queue(app: Application):
@@ -130,6 +140,7 @@ def _parse_hhmm(s: str):
         return None
 
 def schedule_one(app: Application, user_id: int, rid: int, rtype: str, time_local: str, tz_str: str):
+    """Планирует одно напоминание"""
     jq = _job_queue(app)
     if jq is None:
         return
@@ -146,14 +157,18 @@ def schedule_one(app: Application, user_id: int, rid: int, rtype: str, time_loca
 
     tzinfo = _tzinfo_from_str(tz_str)
 
-    jq.run_daily(
-        callback=_send_reminder,
-        time=dtime(hour=hh, minute=mm, tzinfo=tzinfo),
-        data={"user_id": user_id, "rtype": rtype},
-        name=name,
-    )
+    try:
+        jq.run_daily(
+            callback=_send_reminder,
+            time=dtime(hour=hh, minute=mm, tzinfo=tzinfo),
+            data={"user_id": user_id, "rtype": rtype},
+            name=name,
+        )
+    except Exception as e:
+        print(f"Ошибка планирования напоминания: {e}")
 
 def deschedule_one(app: Application, user_id: int, rid: int):
+    """Отменяет одно напоминание"""
     jq = _job_queue(app)
     if jq is None:
         return
@@ -162,6 +177,7 @@ def deschedule_one(app: Application, user_id: int, rid: int):
         j.schedule_removal()
 
 def reschedule_all_for_user(app: Application, user_id: int):
+    """Перепланирует все напоминания пользователя (при смене часового пояса)"""
     jq = _job_queue(app)
     if jq is None:
         return

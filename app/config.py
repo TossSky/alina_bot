@@ -6,25 +6,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings(BaseModel):
+    # Telegram
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     free_messages: int = int(os.getenv("FREE_MESSAGES", "10"))
 
-    # LLM провайдеры
-    llm_provider: str = os.getenv("LLM_PROVIDER", "deepseek")
-
-    # DeepSeek
+    # DeepSeek (единственный провайдер)
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 
-    # Gemini
-    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") # По умолчанию gemini-1.5-flash
-
-    # OpenRouter
-    openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
-    openrouter_model: str = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat")
-
-    # оплаты
+    # Оплаты через Telegram Stars
     stars_day_amount: int = int(os.getenv("STARS_DAY_AMOUNT", "200"))
     stars_week_amount: int = int(os.getenv("STARS_WEEK_AMOUNT", "600"))
     stars_month_amount: int = int(os.getenv("STARS_MONTH_AMOUNT", "1200"))

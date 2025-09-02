@@ -7,21 +7,19 @@ import random
 import re
 
 import httpx
-import google.generativeai as genai
-from google.generativeai import types as genai_types
 
 from .config import settings
 from .prompts import REFUSAL_STYLE, HUMANITY_HINTS
 
 # Базовые дефолты
-DEFAULT_TEMPERATURE = 0.92  # Повысим для более живых ответов
-DEFAULT_MAX_TOKENS = 400    # Уменьшим для более коротких ответов
+DEFAULT_TEMPERATURE = 0.92
+DEFAULT_MAX_TOKENS = 400
 
 # Профили под длину ответа
 VERBOSITY_PROFILES = {
-    "short":  {"max_tokens": 150, "temperature": 0.95},  # Очень короткие, живые
-    "normal": {"max_tokens": 300, "temperature": 0.92},  # Умеренные
-    "long":   {"max_tokens": 450, "temperature": 0.90},  # Чуть длиннее
+    "short":  {"max_tokens": 150, "temperature": 0.95},
+    "normal": {"max_tokens": 300, "temperature": 0.92},
+    "long":   {"max_tokens": 450, "temperature": 0.90},
 }
 
 # Фразы для добавления человечности
@@ -50,7 +48,6 @@ def _humanize_text(text: str) -> str:
     # Иногда добавляем неуверенность
     if random.random() < 0.2:
         uncertainty = random.choice(HUMAN_TOUCHES["uncertainty"])
-        # Вставляем в случайное место
         words = text.split()
         if len(words) > 3:
             pos = random.randint(1, len(words) - 2)
@@ -67,66 +64,96 @@ def _add_typo(text: str) -> str:
     """Добавляет реалистичную опечатку"""
     typos = [
         ("что", "чт"),
-        ("сейчас", "счас"),
+        ("сейчас", "счас"),  
         ("может", "мжет"),
         ("привет", "првет"),
         ("спасибо", "спсибо"),
     ]
     for correct, typo in typos:
         if correct in text.lower():
-            # Заменяем только одно вхождение
             text = text.replace(correct, typo, 1)
             break
     return text
 
+def _format_lists(text: str) -> str:
+    """Форматирует нумерованные списки с переносами строк"""
+    if not text:
+        return text
+    
+    # Паттерн для поиска нумерованных списков
+    # Ищем паттерны вида "1. текст 2. текст" или "1) текст 2) текст"
+    patterns = [
+        (r'(\d+)\.\s+([^.!?]+?)(?=\s*\d+\.|$)', r'\1. \2'),
+        (r'(\d+)\)\s+([^.!?]+?)(?=\s*\d+\)|$)', r'\1) \2'),
+    ]
+    
+    for pattern, replacement in patterns:
+        matches = list(re.finditer(pattern, text))
+        if matches:
+            # Собираем новый текст с переносами
+            parts = []
+            last_end = 0
+            
+            for match in matches:
+                # Добавляем текст до списка
+                if match.start() > last_end:
+                    parts.append(text[last_end:match.start()].rstrip())
+                
+                # Добавляем элемент списка с переносом
+                item = match.group(1) + '. ' + match.group(2).strip()
+                parts.append('\n' + item)
+                last_end = match.end()
+            
+            # Добавляем остаток текста
+            if last_end < len(text):
+                remaining = text[last_end:].lstrip()
+                if remaining:
+                    parts.append('\n' + remaining)
+            
+            text = ''.join(parts).strip()
+            break
+    
+    # Также обработаем маркированные списки (- или •)
+    text = re.sub(r'(?:^|\s)[-•]\s+', '\n• ', text)
+    
+    return text
+
 def _postprocess(text: str) -> str:
-    """Минимальная постобработка"""
+    """Постобработка ответа"""
     if not text:
         return text
 
-    # Убираем только явные префиксы
+    # Убираем префиксы
     t = text.strip()
     for prefix in ("Алина:", "Алина —", "Алина -"):
         if t.startswith(prefix):
             t = t[len(prefix):].strip()
             break
 
+    # Форматируем списки
+    t = _format_lists(t)
+    
     # Добавляем человечности
     t = _humanize_text(t)
 
-    # Заменяем Markdown, чтобы Telegram его понял
+    # Заменяем Markdown для Telegram
     t = re.sub(r'\*\*(.*?)\*\*', r'*\1*', t)
+    
+    # Убираем множественные переносы строк
+    t = re.sub(r'\n{3,}', '\n\n', t)
 
     return t.strip()
 
 class LLMClient:
-    """
-    Унифицированный клиент к LLM-провайдерам.
-    Оптимизирован для быстрых, живых ответов.
-    """
+    """Клиент для работы с DeepSeek API"""
 
     def __init__(self):
-        self.provider = (os.getenv("LLM_PROVIDER") or getattr(settings, "llm_provider", "deepseek")).lower()
-
-        # DeepSeek
-        self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY") or getattr(settings, "deepseek_api_key", None)
-        self.deepseek_model = getattr(settings, "deepseek_model", "deepseek-chat")
-
-        # Gemini
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY") or getattr(settings, "gemini_api_key", None)
-        self.gemini_model = getattr(settings, "gemini_model", "gemini-1.5-flash")
-        if self.provider == "gemini" and self.gemini_api_key:
-            genai.configure(api_key=self.gemini_api_key)
-
-        # OpenRouter
-        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY") or getattr(settings, "openrouter_api_key", None)
-        self.openrouter_model = getattr(settings, "openrouter_model", "openrouter/auto")
-
-        # Ollama
-        self.ollama_host = getattr(settings, "ollama_host", "http://127.0.0.1:11434")
-        self.ollama_model = getattr(settings, "ollama_model", "qwen2.5")
-
+        self.api_key = os.getenv("DEEPSEEK_API_KEY") or getattr(settings, "deepseek_api_key", None)
+        self.model = getattr(settings, "deepseek_model", "deepseek-chat")
         self._client: Optional[httpx.AsyncClient] = None
+
+        if not self.api_key:
+            raise RuntimeError("DEEPSEEK_API_KEY не задан в .env файле")
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -142,10 +169,13 @@ class LLMClient:
         verbosity: Optional[str] = None,
         safety: bool = False,
     ) -> str:
+        """Отправляет запрос к DeepSeek API"""
+        
         prof = _pick_profile(verbosity)
         temperature = float(temperature if temperature is not None else prof["temperature"])
         max_tokens = int(max_tokens if max_tokens is not None else prof["max_tokens"])
 
+        # Добавляем подсказки для человечности
         if random.random() < 0.3:
             hint = random.choice(list(HUMANITY_HINTS.values()))
             messages = messages + [{"role": "system", "content": hint}]
@@ -153,74 +183,19 @@ class LLMClient:
         if safety:
             messages = [{"role": "system", "content": REFUSAL_STYLE}] + messages
 
-        prov = self.provider
-        if prov == "deepseek":
-            return await self._chat_deepseek(messages, temperature, max_tokens)
-        elif prov == "gemini":
-            return await self._chat_gemini(messages, temperature, max_tokens)
-        elif prov == "openrouter":
-            return await self._chat_openrouter(messages, temperature, max_tokens)
-        elif prov == "ollama":
-            return await self._chat_ollama(messages, temperature, max_tokens)
-        else:
-            return await self._chat_deepseek(messages, temperature, max_tokens)
-
-    async def _chat_gemini(
-        self,
-        messages: List[Dict[str, str]],
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        if not self.gemini_api_key:
-            raise RuntimeError("GEMINI_API_KEY не задан")
-
-        system_instructions = [msg["content"] for msg in messages if msg["role"] == "system"]
-        
-        chat_history = []
-        for msg in messages:
-            if msg["role"] == "system":
-                continue
-            # Gemini API использует роль 'model' для ответов ассистента
-            role = "model" if msg["role"] == "assistant" else "user"
-            chat_history.append({'role': role, 'parts': [msg['content']]})
-
-
-        model = genai.GenerativeModel(
-            model_name=self.gemini_model,
-            system_instruction="\n".join(system_instructions),
-            generation_config=genai.types.GenerationConfig(
-                max_output_tokens=max_tokens,
-                temperature=temperature,
-                # Отключаем "thinking" для ускорения ответов, как в новой документации
-                thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
-            )
-        )
-
-        try:
-            resp = await model.generate_content_async(chat_history)
-            txt = resp.text
-            return _postprocess(txt)
-        except Exception as e:
-            print(f"Gemini API error: {e}")
-            return "Ой, что-то голова разболелась... давай чуть позже?"
-
-
-    async def _chat_deepseek(
-        self,
-        messages: List[Dict[str, str]],
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        if not self.deepseek_api_key:
-            raise RuntimeError("DEEPSEEK_API_KEY не задан")
+        # Добавляем явное указание про форматирование списков
+        messages.append({
+            "role": "system", 
+            "content": "ВАЖНО: Если пишешь список, ОБЯЗАТЕЛЬНО делай перенос строки после каждого пункта!"
+        })
 
         url = "https://api.deepseek.com/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {self.deepseek_api_key}",
+            "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
         payload = {
-            "model": self.deepseek_model,
+            "model": self.model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -235,10 +210,18 @@ class LLMClient:
             data = resp.json()
             txt = data["choices"][0]["message"]["content"]
             return _postprocess(txt)
-        except Exception as e:
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                return "ой, проблемы с ключом API... проверь настройки"
+            elif e.response.status_code == 429:
+                return "секунду, слишком много сообщений... попробуй чуть позже?"
+            else:
+                return "что-то с подключением... попробуй ещё раз?"
+        except Exception:
             return "ой, что-то связь барахлит... попробуй ещё раз?"
 
     async def aclose(self):
+        """Закрывает HTTP клиент"""
         if self._client is not None:
             await self._client.aclose()
             self._client = None
