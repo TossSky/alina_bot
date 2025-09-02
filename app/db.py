@@ -25,7 +25,7 @@ def init():
             is_subscribed INTEGER DEFAULT 0
         );"""))
 
-        # messages
+        # messages - добавим индекс для быстрого поиска по user_id и ts
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +34,12 @@ def init():
             content TEXT,
             ts DATETIME DEFAULT CURRENT_TIMESTAMP
         );"""))
+        
+        # Создаём индекс для оптимизации выборки истории
+        conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_messages_user_ts 
+        ON messages(user_id, ts DESC);
+        """))
 
         # payments
         conn.execute(text("""
@@ -54,12 +60,13 @@ def init():
             conn.execute(text("ALTER TABLE users ADD COLUMN sub_until DATETIME;"))
         if not _has_column(conn, "users", "tz"):
             conn.execute(text("ALTER TABLE users ADD COLUMN tz TEXT;"))
+        
         # reminders
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS reminders(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
-            rtype TEXT,          -- 'checkin' | 'care'
+            rtype TEXT,          -- 'checkin' | 'morning' | 'evening'
             time_local TEXT,     -- 'HH:MM'
             active INTEGER DEFAULT 1
         );"""))
@@ -88,14 +95,34 @@ def update_user(user_id: int, **fields):
 
 
 def add_msg(user_id: int, role: str, content: str):
+    """Добавляет сообщение в историю"""
     with engine.begin() as conn:
         conn.execute(
             text("INSERT INTO messages(user_id, role, content) VALUES(:u,:r,:c)"),
             {"u": user_id, "r": role, "c": content},
         )
+        
+        # Очистка старых сообщений (храним только последние 100 для каждого пользователя)
+        conn.execute(
+            text("""
+            DELETE FROM messages 
+            WHERE user_id=:u 
+            AND id NOT IN (
+                SELECT id FROM messages 
+                WHERE user_id=:u 
+                ORDER BY ts DESC 
+                LIMIT 100
+            )
+            """),
+            {"u": user_id}
+        )
 
 
-def last_dialog(user_id: int, limit: int = 12):
+def last_dialog(user_id: int, limit: int = 20):
+    """
+    Возвращает последние сообщения диалога.
+    По умолчанию 20 сообщений для хорошего контекста.
+    """
     with engine.begin() as conn:
         rows = conn.execute(
             text("""
@@ -142,6 +169,7 @@ def activate_subscription(user_id: int, days: int = 30):
             text("UPDATE users SET is_subscribed=1, sub_until=:su WHERE user_id=:u"),
             {"su": new_until, "u": user_id},
         )
+        # Восстанавливаем бесплатные сообщения при активации подписки
         conn.execute(
             text("UPDATE users SET free_left=10 WHERE user_id=:u"), {"u": user_id}
         )
@@ -169,34 +197,43 @@ def mark_payment(order_id: str, status: str):
             {"s": status, "o": order_id},
         )
 
-# ДОБАВЬ вспомогательные функции для TZ:
-def set_tz(user_id:int, tz:str):
+# Вспомогательные функции для TZ
+def set_tz(user_id: int, tz: str):
     update_user(user_id, tz=tz)
 
-def get_tz(user_id:int) -> Optional[str]:
+def get_tz(user_id: int) -> Optional[str]:
     with engine.begin() as conn:
         row = conn.execute(text("SELECT tz FROM users WHERE user_id=:u"), {"u": user_id}).mappings().first()
         return row["tz"] if row and row["tz"] else None
 
 # CRUD для напоминаний
-def list_reminders(user_id:int) -> List[Dict]:
+def list_reminders(user_id: int) -> List[Dict]:
     with engine.begin() as conn:
-        rows = conn.execute(text("SELECT * FROM reminders WHERE user_id=:u ORDER BY time_local"), {"u": user_id}).mappings().all()
+        rows = conn.execute(
+            text("SELECT * FROM reminders WHERE user_id=:u ORDER BY time_local"), 
+            {"u": user_id}
+        ).mappings().all()
         return [dict(r) for r in rows]
 
-def add_reminder(user_id:int, rtype:str, time_local:str) -> int:
+def add_reminder(user_id: int, rtype: str, time_local: str) -> int:
     with engine.begin() as conn:
-        conn.execute(text("INSERT INTO reminders(user_id,rtype,time_local,active) VALUES(:u,:t,:tl,1)"),
-                     {"u": user_id, "t": rtype, "tl": time_local})
+        conn.execute(
+            text("INSERT INTO reminders(user_id,rtype,time_local,active) VALUES(:u,:t,:tl,1)"),
+            {"u": user_id, "t": rtype, "tl": time_local}
+        )
         rid = conn.execute(text("SELECT last_insert_rowid() AS rid")).mappings().first()["rid"]
         return int(rid)
 
-def toggle_reminder(user_id:int, rid:int, active:int):
+def toggle_reminder(user_id: int, rid: int, active: int):
     with engine.begin() as conn:
-        conn.execute(text("UPDATE reminders SET active=:a WHERE id=:rid AND user_id=:u"),
-                     {"a": active, "rid": rid, "u": user_id})
+        conn.execute(
+            text("UPDATE reminders SET active=:a WHERE id=:rid AND user_id=:u"),
+            {"a": active, "rid": rid, "u": user_id}
+        )
 
-def delete_reminder(user_id:int, rid:int):
+def delete_reminder(user_id: int, rid: int):
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM reminders WHERE id=:rid AND user_id=:u"),
-                     {"rid": rid, "u": user_id})
+        conn.execute(
+            text("DELETE FROM reminders WHERE id=:rid AND user_id=:u"),
+            {"rid": rid, "u": user_id}
+        )

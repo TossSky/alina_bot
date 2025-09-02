@@ -1,6 +1,7 @@
 # app/reminders.py
 from __future__ import annotations
 import re
+import random
 from datetime import time as dtime, timezone, datetime, timedelta
 from zoneinfo import ZoneInfo
 from telegram.ext import ContextTypes, Application
@@ -17,7 +18,7 @@ def _get_llm():
         _llm = LLMClient()
     return _llm
 
-# ----- TZ helpers (поддержка 'Europe/…' и 'UTC+/-H') -----
+# ----- TZ helpers -----
 def _tzinfo_from_str(tz_str: str):
     if not tz_str:
         return timezone.utc
@@ -31,28 +32,42 @@ def _tzinfo_from_str(tz_str: str):
     except Exception:
         return timezone.utc
 
-# ----- фоллбеки, если LLM недоступен -----
+# ----- Более разнообразные и человечные фоллбеки -----
 FALLBACKS = {
     "morning": [
-        "Доброе утро 💛 Как ты проснулся(ась)?",
-        "Утро! Я рядом. Расскажешь, что сегодня хочется для себя?",
-        "С добрым утром 🌿 Давай начнём мягко. Как твоё состояние?"
+        "доброе утро 💛 как спалось?",
+        "утро! как дела?",
+        "привет) уже проснулся?",
+        "доброе утречко 🌿",
+        "утро... кофе уже был?",
+        "привет! как начался день?",
+        "утро) что планируешь сегодня?",
     ],
     "evening": [
-        "Как прошёл день? Хочу услышать тебя 💛",
-        "Вечер. Если хочешь — просто выговорись, я рядом.",
-        "Обними себя мысленно за всё, что получилось сегодня 🌙"
+        "как прошёл день?",
+        "привет) как ты?",
+        "вечер... устал?",
+        "хей, как дела? 💛",
+        "как день? всё ок?",
+        "привет) что нового?",
+        "как сегодня прошло?",
     ],
     "checkin": [
-        "Привет. Как ты? Можно просто парой слов 💛",
-        "Я тут. Расскажешь немного про своё состояние?",
-        "Заглянула к тебе. Что внутри прямо сейчас?"
+        "привет) как ты?",
+        "хей, что нового?",
+        "как дела? 💛",
+        "привет... всё хорошо?",
+        "как настроение?",
+        "что делаешь?",
+        "как ты там?",
+        "привет) не потерялся?",
     ]
 }
 
 def _pick_fallback(rtype: str) -> str:
-    import random
-    return random.choice(FALLBACKS.get(rtype, FALLBACKS["checkin"]))
+    """Выбирает случайное сообщение из фоллбеков"""
+    messages = FALLBACKS.get(rtype, FALLBACKS["checkin"])
+    return random.choice(messages)
 
 # ----- job callback -----
 async def _send_reminder(context: ContextTypes.DEFAULT_TYPE):
@@ -61,45 +76,49 @@ async def _send_reminder(context: ContextTypes.DEFAULT_TYPE):
     rtype = data.get("rtype", "checkin")
     chat_id = user_id
 
-    # профиль для подсказки стилю
+    # Профиль пользователя
     u = db.get_user(user_id)
     name = u.get("name") or ""
     style = u.get("style") or "gentle"
     verbosity = u.get("verbosity") or "normal"
 
-    mood_hints = {
-        "morning": "Напиши короткое доброе утреннее сообщение, без советов и инструкций. Тёплое, бодрящее, ласковое.",
-        "evening": "Напиши короткое вечернее сообщение-поддержку, мягкое и тёплое. Без оценок, без советов.",
-        "checkin": "Напиши короткое дружеское сообщение, чтобы человек ответил, как чувствует себя. Без советов."
-    }
-    hint = mood_hints.get(rtype, mood_hints["checkin"])
-
-    msgs = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "system", "content": f"Тон: {style}. Длина: {verbosity}. Имя собеседника: {name or 'друг'}."},
-        {"role": "system", "content": hint},
-        {"role": "user", "content": "Напиши одно короткое сообщение от Алины без подписи. Эмодзи — умеренно."}
-    ]
-
-    text = None
-    try:
-        llm = _get_llm()
-        text = await llm.chat(msgs, temperature=0.9, max_tokens=120)
-        if text and len(text) > 400:
-            text = text[:400] + "…"
-    except Exception:
-        text = None
-
-    if not text:
+    # Иногда используем простой фоллбек (в 70% случаев)
+    if random.random() < 0.7:
         text = _pick_fallback(rtype)
+    else:
+        # Иногда генерируем через LLM для разнообразия
+        mood_hints = {
+            "morning": "напиши короткое доброе утреннее приветствие, как будто пишешь другу в мессенджере",
+            "evening": "напиши короткое вечернее сообщение, спроси как день",
+            "checkin": "напиши короткое дружеское сообщение, просто узнай как дела"
+        }
+        hint = mood_hints.get(rtype, mood_hints["checkin"])
 
+        msgs = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": f"Тон: {style}. Имя: {name or 'друг'}."},
+            {"role": "system", "content": hint},
+            {"role": "system", "content": "ВАЖНО: пиши ОЧЕНЬ коротко (1-2 фразы), как в мессенджере, без лишних слов"},
+            {"role": "user", "content": "напиши одно короткое сообщение"}
+        ]
+
+        try:
+            llm = _get_llm()
+            text = await llm.chat(msgs, temperature=0.95, max_tokens=80)
+            # Обрезаем, если слишком длинное
+            if text and len(text) > 150:
+                text = text[:150].rsplit(" ", 1)[0] + "..."
+        except Exception:
+            text = _pick_fallback(rtype)
+
+    # Отправляем БЕЗ форматирования
     await context.bot.send_message(chat_id=chat_id, text=text)
 
 # ----- JobQueue glue -----
 def _job_queue(app: Application):
     return getattr(app, "job_queue", None)
 
-def _job_name(user_id:int, rid:int) -> str:
+def _job_name(user_id: int, rid: int) -> str:
     return f"rem:{user_id}:{rid}"
 
 def _parse_hhmm(s: str):
@@ -109,12 +128,13 @@ def _parse_hhmm(s: str):
     except Exception:
         return None
 
-def schedule_one(app: Application, user_id:int, rid:int, rtype:str, time_local:str, tz_str:str):
+def schedule_one(app: Application, user_id: int, rid: int, rtype: str, time_local: str, tz_str: str):
     jq = _job_queue(app)
     if jq is None:
         return
 
     name = _job_name(user_id, rid)
+    # Удаляем старые задачи с таким же именем
     for j in jq.get_jobs_by_name(name):
         j.schedule_removal()
 
@@ -132,7 +152,7 @@ def schedule_one(app: Application, user_id:int, rid:int, rtype:str, time_local:s
         name=name,
     )
 
-def deschedule_one(app: Application, user_id:int, rid:int):
+def deschedule_one(app: Application, user_id: int, rid: int):
     jq = _job_queue(app)
     if jq is None:
         return
@@ -140,7 +160,7 @@ def deschedule_one(app: Application, user_id:int, rid:int):
     for j in jq.get_jobs_by_name(name):
         j.schedule_removal()
 
-def reschedule_all_for_user(app: Application, user_id:int):
+def reschedule_all_for_user(app: Application, user_id: int):
     jq = _job_queue(app)
     if jq is None:
         return

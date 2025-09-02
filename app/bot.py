@@ -10,7 +10,7 @@ from telegram.ext import (
 )
 
 from .config import settings
-from .prompts import SYSTEM_PROMPT, STYLE_HINTS, VERBOSITY_HINTS, MOOD_TEMPLATES
+from .prompts import SYSTEM_PROMPT, STYLE_HINTS, VERBOSITY_HINTS, MOOD_TEMPLATES, TECH_BOUNDARY, AVOID_PATTERNS
 from .llm_client import LLMClient
 from .typing_sim import human_typing
 import app.db as db
@@ -22,11 +22,11 @@ from .reminders import schedule_one, deschedule_one, reschedule_all_for_user, _t
 db.init()
 llm = LLMClient()
 
-# простой рейт-лимит: не чаще 1 сообщения в 2 сек от пользователя
+# простой рейт-лимит: не чаще 1 сообщения в секунду от пользователя (ускорим)
 LAST_SEEN = {}
 
-# для «узкой» кнопки корзины: визуальный наполнитель (em-space U+2003)
-FILLER = " " * 10  # подбери число по вкусу
+# для «узкой» кнопки корзины: визуальный наполнитель
+FILLER = " " * 10
 
 MONTHS_RU = {
     1: "января", 2: "февраля", 3: "марта", 4: "апреля", 5: "мая", 6: "июня",
@@ -34,11 +34,9 @@ MONTHS_RU = {
 }
 
 def _encode_hhmm(hhmm: str) -> str:
-    # "09:30" -> "0930"
     return hhmm.replace(":", "").zfill(4)
 
 def _decode_hhmm(compact: str) -> str:
-    # "0930" -> "09:30"
     compact = compact.zfill(4)
     return f"{compact[:2]}:{compact[2:]}"
 
@@ -53,7 +51,6 @@ def _sub_state(user_row):
         until = datetime.fromisoformat(su)
     except Exception:
         return False, None, None
-    # сравниваем на «наивных» в UTC
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     if until <= now:
         return False, until, timedelta(0)
@@ -86,11 +83,12 @@ async def _apply_tz(update, context, tz_text: str):
             _ = ZoneInfo(tz_text)
             tz_str = tz_text
         except Exception:
-            await update.message.reply_text("Не узнала такой часовой пояс. Пример: Europe/Tallinn или UTC+3")
+            # БЕЗ parse_mode - простой текст
+            await update.message.reply_text("не узнала такой часовой пояс... попробуй типа Europe/Moscow или UTC+3")
             return
     db.set_tz(user_id, tz_str)
     reschedule_all_for_user(context.application, user_id)
-    await update.message.reply_text(f"Готово! Буду ориентироваться на {tz_str}.")
+    await update.message.reply_text(f"окей, запомнила - {tz_str}")
 
 async def tz_cmd(update, context):
     user_id = update.effective_user.id
@@ -99,9 +97,9 @@ async def tz_cmd(update, context):
         context.user_data["await_tz"] = True
         cur = db.get_tz(user_id) or "не задан"
         await update.message.reply_text(
-            "Напиши твой часовой пояс одним сообщением.\n"
-            "Примеры: Europe/Tallinn, Europe/Moscow, UTC+3, UTC-5\n"
-            f"Сейчас: {cur}"
+            f"напиши свой часовой пояс одним сообщением\n"
+            f"например: Europe/Moscow, UTC+3\n"
+            f"сейчас у тебя: {cur}"
         )
         return
     await _apply_tz(update, context, arg.strip())
@@ -115,16 +113,15 @@ def _reminders_kb(user_id: int):
         state = "вкл" if r["active"] else "выкл"
         rid = r["id"]
         rtype = r.get("rtype") or "checkin"
-        # визуальный хак: растягиваем левую кнопку, корзина кажется узкой
         label = f"⏰ {r['time_local']} ({state}) — {rtype}{FILLER}"
         rows.append([
             InlineKeyboardButton(label, callback_data=f"rem|toggle|{rid}"),
             InlineKeyboardButton("🗑", callback_data=f"rem|del|{rid}")
         ])
     rows += [
-        [InlineKeyboardButton("Добавить «Доброе утро» (09:00)",  callback_data="rem|add|morning|0900")],
-        [InlineKeyboardButton("Добавить «Вечерний привет» (21:00)", callback_data="rem|add|evening|2100")],
-        [InlineKeyboardButton("Добавить своё время…",   callback_data="rem|add|custom")],
+        [InlineKeyboardButton("добавить «доброе утро» (09:00)",  callback_data="rem|add|morning|0900")],
+        [InlineKeyboardButton("добавить «вечерний привет» (21:00)", callback_data="rem|add|evening|2100")],
+        [InlineKeyboardButton("добавить своё время…",   callback_data="rem|add|custom")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -132,9 +129,9 @@ async def reminders_cmd(update, context):
     u = db.get_user(update.effective_user.id)
     tz = db.get_tz(u["user_id"]) or "UTC"
     text = (
-        "Я могу сама писать первой — чтобы мы не терялись 💛\n"
-        f"Твой часовой пояс: {tz}\n\n"
-        "Нажми, чтобы включить/выключить, или добавь новые."
+        f"могу писать первой, чтобы не терялись 💛\n"
+        f"твой часовой пояс: {tz}\n\n"
+        "нажми, чтобы включить/выключить или добавить новые"
     )
     await update.message.reply_text(text, reply_markup=_reminders_kb(u["user_id"]))
 
@@ -145,43 +142,70 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active, until, remain = _sub_state(u)
     if active:
         text = (
-            "Статус: подписка активна 💛\n"
-            f"Действует до: {format_dt(until)}\n"
-            f"Осталось: {_humanize_td(remain)}"
+            f"подписка активна 💛\n"
+            f"до: {format_dt(until)}\n"
+            f"осталось: {_humanize_td(remain)}"
         )
     else:
         left = u["free_left"] or 0
         text = (
-            "Статус: подписка не активна.\n"
-            f"Бесплатных сообщений осталось: {left}\n"
-            "Оформить подписку: /subscribe"
+            f"подписка не активна\n"
+            f"бесплатных сообщений: {left}\n"
+            "оформить: /subscribe"
         )
     await update.message.reply_text(text)
 
-from .prompts import SYSTEM_PROMPT, STYLE_HINTS, VERBOSITY_HINTS, MOOD_TEMPLATES, TECH_BOUNDARY
+# Список технических слов для определения технических вопросов
+TECH_KEYWORDS = [
+    "алгоритм", "код", "программ", "python", "javascript", "java", "sql",
+    "функци", "класс", "метод", "массив", "цикл", "for", "while", "if",
+    "дейкстр", "граф", "дерев", "хеш", "сложност", "big o", "o(n)",
+    "база данн", "таблиц", "запрос", "индекс", "join", "select",
+    "компил", "интерпрет", "debug", "git", "docker", "api", "rest",
+    "матриц", "вектор", "интеграл", "производн", "уравнен", "формул",
+    "машинн", "нейрон", "ml", "ai", "датасет", "модел", "обучен",
+    "структур данн", "стек", "очеред", "связн списк", "рекурс",
+    "```", "def ", "class ", "function", "import", "return", "console.log"
+]
 
+def is_tech_question(text: str) -> bool:
+    """Определяет, является ли вопрос техническим"""
+    if not text:
+        return False
+    t = text.lower()
+    return any(keyword in t for keyword in TECH_KEYWORDS)
 
-def build_messages(user_id:int, name:str, user_text:str):
+def build_messages(user_id: int, name: str, user_text: str):
     u = db.get_user(user_id)
-    history = db.last_dialog(user_id, limit=12)
-
+    # Увеличим историю до 20 сообщений для лучшего контекста
+    history = db.last_dialog(user_id, limit=20)
+    
     style = (u["style"] or "gentle")
     verbosity = (u["verbosity"] or "normal")
-
+    
     msgs = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "system", "content": f"Имя собеседника: {name or 'друг'}."},
+        {"role": "system", "content": AVOID_PATTERNS},
+        {"role": "system", "content": f"имя собеседника: {name or 'друг'}"},
         {"role": "system", "content": f"{STYLE_HINTS.get(style,'')} {VERBOSITY_HINTS.get(verbosity,'')}".strip()},
     ]
-
-    # мягкая граница для технички
+    
+    # Если технический вопрос - добавляем строгое ограничение
     if is_tech_question(user_text):
         msgs.append({"role": "system", "content": TECH_BOUNDARY})
-
+        # Добавим ещё одно напоминание
+        msgs.append({"role": "system", "content": "ПОМНИ: ты НЕ помогаешь с техническими вопросами. Отвечай как обычная девушка, которая в этом не разбирается."})
+    
+    # История
     for h in history:
         msgs.append({"role": h["role"], "content": h["content"]})
+    
     msgs.append({"role": "user", "content": user_text})
-    return msgs, ("short" if is_tech_question(user_text) else verbosity)
+    
+    # Для технических вопросов всегда short
+    final_verbosity = "short" if is_tech_question(user_text) else verbosity
+    
+    return msgs, final_verbosity
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = db.get_user(update.effective_user.id)
@@ -189,40 +213,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if active:
         text = (
-            "Привет! Я Алина 💛\n"
-            "Рада тебя видеть.\n"
-            f"Подписка активна до {format_dt(until)} "
-            f"(ещё {_humanize_td(remain)}).\n"
-            "Пиши, о чём хочется поговорить 🌿"
+            f"привет! я алина 💛\n"
+            f"рада тебя видеть)\n"
+            f"подписка активна до {format_dt(until)} "
+            f"(ещё {_humanize_td(remain)})\n"
+            "пиши о чём хочешь поговорить 🌿"
         )
     else:
         text = (
-            "Привет! Я Алина 💛\n"
-            "Хочешь выговориться, поделиться переживаниями или просто поболтать?\n"
-            "Попробуй написать:\n"
-            "• «Мне грустно, поддержи»\n"
-            "• «Помоги найти мотивацию»\n"
-            "• «Поболтаем о чём-нибудь лёгком?»\n"
-            f"Бесплатных сообщений осталось: {u['free_left'] or 0}.\n"
-            "Команды: /profile /mood /subscribe /status /help"
+            "привет! я алина 💛\n"
+            "хочешь выговориться или просто поболтать?\n"
+            "можешь написать например:\n"
+            "- мне грустно\n"
+            "- расскажи что-нибудь\n"
+            "- как твой день?\n"
+            f"бесплатных сообщений: {u['free_left'] or 0}\n"
+            "команды: /profile /mood /subscribe /status /help"
         )
 
-    # при /start перепланируем все пользовательские напоминания
     reschedule_all_for_user(context.application, update.effective_user.id)
-
     await update.message.reply_text(text)
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Я рядом, чтобы поговорить 💛\n"
-        "Команды:\n"
-        "• /profile — настроить стиль (нежно/по делу) и длину ответов\n"
-        "• /mood — мягкий чек-ин настроения\n"
-        "• /reminders — когда мне писать первой\n"
-        "• /tz — часовой пояс для напоминаний\n"
-        "• /subscribe — оформить подписку звёздами\n"
-        "• /status — статус подписки и лимитов\n"
-        "• /jobs — отладка: что запланировано\n"
+        "я рядом, если хочешь поговорить 💛\n\n"
+        "команды:\n"
+        "/profile — настроить стиль общения\n"
+        "/mood — как ты себя чувствуешь\n"
+        "/reminders — когда писать первой\n"
+        "/tz — часовой пояс\n"
+        "/subscribe — подписка\n"
+        "/status — статус подписки"
     )
 
 # -------------------- профиль / режимы --------------------
@@ -230,29 +251,30 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = db.get_user(update.effective_user.id)
     text = (
-        "Давай настроим общение.\n"
-        f"Текущий стиль: {u['style'] or 'gentle'}, длина: {u['verbosity'] or 'normal'}.\n\n"
-        "Напиши, что выбрать:\n"
-        "• Стиль: «нежно» или «по делу»\n"
-        "• Длина: «коротко», «средне», «подробно»\n"
-        "• Имя: «зови меня <Имя>»"
+        f"давай настроим общение\n"
+        f"сейчас: стиль {u['style'] or 'gentle'}, длина {u['verbosity'] or 'normal'}\n\n"
+        "напиши что выбрать:\n"
+        "стиль: нежно или по делу\n"
+        "длина: коротко, средне, подробно\n"
+        "имя: зови меня <имя>"
     )
     await update.message.reply_text(text)
 
 async def mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = (
-        "Как ты сейчас? Выбери ближе всего: тревожно / грустно / злюсь / устал / нормально / окрылён.\n"
-        "Можно просто написать слово. Я подстроюсь 💛"
+        "как ты сейчас?\n"
+        "можешь написать: тревожно, грустно, злюсь, устал, нормально, окрылён\n"
+        "или просто расскажи своими словами 💛"
     )
     await update.message.reply_text(prompt)
 
 async def subscribe(update, context):
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⭐ День", callback_data="pay_stars:day")],
-        [InlineKeyboardButton("⭐ Неделя", callback_data="pay_stars:week")],
-        [InlineKeyboardButton("⭐ Месяц", callback_data="pay_stars:month")],
+        [InlineKeyboardButton("⭐ день", callback_data="pay_stars:day")],
+        [InlineKeyboardButton("⭐ неделя", callback_data="pay_stars:week")],
+        [InlineKeyboardButton("⭐ месяц", callback_data="pay_stars:month")],
     ])
-    await update.message.reply_text("Выбери удобный вариант 💛", reply_markup=kb)
+    await update.message.reply_text("выбери удобный вариант 💛", reply_markup=kb)
 
 # -------------------- callbacks --------------------
 
@@ -263,13 +285,12 @@ async def on_cb(update, context):
     data = q.data or ""
     parts = data.split("|")
 
-    # Переключение существующего напоминания
     if parts[:2] == ["rem", "toggle"] and len(parts) == 3:
         rid = int(parts[2])
         rs = db.list_reminders(user_id)
         cur = next((r for r in rs if r["id"] == rid), None)
         if not cur:
-            await q.edit_message_text("Не нашла напоминание.")
+            await q.edit_message_text("не нашла напоминание...")
             return
         new_active = 0 if cur["active"] else 1
         db.toggle_reminder(user_id, rid, new_active)
@@ -281,7 +302,6 @@ async def on_cb(update, context):
         await q.edit_message_reply_markup(reply_markup=_reminders_kb(user_id))
         return
 
-    # Удаление напоминания
     if parts[:2] == ["rem", "del"] and len(parts) == 3:
         rid = int(parts[2])
         deschedule_one(context.application, user_id, rid)
@@ -289,32 +309,28 @@ async def on_cb(update, context):
         await q.edit_message_reply_markup(reply_markup=_reminders_kb(user_id))
         return
 
-    # Добавление пресета или custom
     if parts[:2] == ["rem", "add"]:
-        # custom — просим время
         if len(parts) == 3 and parts[2] == "custom":
-            await q.edit_message_text("Напиши время в формате HH:MM (например, 08:30)")
+            await q.edit_message_text("напиши время в формате HH:MM (например, 08:30)")
             context.user_data["await_custom_time"] = True
             return
 
-        # пресеты: rem|add|<rtype>|<HHMM>, где rtype ∈ {morning, evening, checkin}
         if len(parts) == 4:
-            rtype = parts[2]           # "morning" | "evening" | "checkin"
+            rtype = parts[2]
             hhmm = _decode_hhmm(parts[3])
             rid = db.add_reminder(user_id, rtype, hhmm)
             tz = db.get_tz(user_id) or "UTC"
             schedule_one(context.application, user_id, rid, rtype, hhmm, tz)
-            await q.edit_message_text("Добавила! 🌿")
-            await q.message.reply_text("Твои напоминания:", reply_markup=_reminders_kb(user_id))
+            await q.edit_message_text("добавила! 🌿")
+            await q.message.reply_text("твои напоминания:", reply_markup=_reminders_kb(user_id))
             return
 
-    # Платёжные кнопки
     if data.startswith("pay_stars:"):
         plan = data.split(":", 1)[1]
         await send_stars_invoice(update, context, plan)
         return
 
-    await q.edit_message_text("Хм, не поняла действие. Давай попробуем ещё раз: /reminders")
+    await q.edit_message_text("хм, не поняла... попробуй ещё раз: /reminders")
 
 # -------------------- парсер быстрых фраз профиля --------------------
 
@@ -344,7 +360,7 @@ def parse_profile_phrase(text: str):
 def is_rate_limited(user_id: int) -> bool:
     now = time.time()
     last = LAST_SEEN.get(user_id, 0)
-    if now - last < 2.0:
+    if now - last < 1.0:  # Уменьшим до 1 секунды
         LAST_SEEN[user_id] = now
         return True
     LAST_SEEN[user_id] = now
@@ -365,7 +381,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # рейт-лимит
     if is_rate_limited(user_id):
-        await update.message.reply_text("Дай мне секунду сформулировать ответ 🌿")
+        await update.message.reply_text("секунду... печатаю 🌿")
         return
 
     # ожидаем время для custom reminder
@@ -381,11 +397,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     tz = db.get_tz(user_id) or "UTC"
                     schedule_one(context.application, user_id, rid, "checkin", hhmm, tz)
                     context.user_data["await_custom_time"] = False
-                    await update.message.reply_text("Добавила ⏰ Готово!", reply_markup=_reminders_kb(user_id))
+                    await update.message.reply_text("добавила ⏰", reply_markup=_reminders_kb(user_id))
                     return
             except Exception:
                 pass
-        await update.message.reply_text("Не похоже на время. Напиши, пожалуйста, так: 09:30")
+        await update.message.reply_text("не похоже на время... напиши типа 09:30")
         return
 
     # быстрые настройки из произвольной фразы
@@ -398,29 +414,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u = db.get_user(user_id)
         note = []
         if name:
-            note.append(f"буду звать тебя {u['name']}")
+            note.append(f"буду звать {u['name']}")
         if style:
             note.append("настроила стиль")
         if verbosity:
-            note.append("подобрала длину ответов")
+            note.append("подобрала длину")
         if note:
-            await update.message.reply_text("Готово: " + ", ".join(note) + " 💛")
+            await update.message.reply_text("готово: " + ", ".join(note) + " 💛")
             return
 
     # /mood ответы одним словом
     lower = text_in.lower()
     if lower in MOOD_TEMPLATES:
-        plan = MOOD_TEMPLATES[lower]
-        msgs = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": "Ответь как близкая подруга. Короткими абзацами."},
-            {"role": "system", "content": f"Состояние собеседника: {lower}. {plan}"},
-            {"role": "user", "content": "Поддержи меня, пожалуйста."}
-        ]
-        try:
-            reply = await llm.chat(msgs, temperature=0.8, max_tokens=500)
-        except Exception:
-            reply = "Я рядом. Давай начнём с одного тёплого шага — и продолжим, как тебе комфортно 💛"
+        # Простой ответ из шаблона
+        reply = MOOD_TEMPLATES[lower]
         await human_typing(context, update.effective_chat.id, reply)
         db.add_msg(user_id, "user", text_in)
         db.add_msg(user_id, "assistant", reply)
@@ -432,8 +439,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not u["is_subscribed"]:
         if (u["free_left"] or 0) <= 0:
             await update.message.reply_text(
-                "Похоже, бесплатные сообщения закончились. Хочешь продолжать без ограничений? "
-                "Я буду рядом 💛 (команда /subscribe)"
+                "ой, бесплатные сообщения закончились...\n"
+                "хочешь продолжить? /subscribe 💛"
             )
             return
         db.update_user(user_id, free_left=(u["free_left"] - 1))
@@ -441,23 +448,26 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # диалог
     db.add_msg(user_id, "user", text_in)
     msgs, pref_verbosity = build_messages(user_id, u["name"] or update.effective_user.first_name, text_in)
+    
     try:
         reply = await llm.chat(
             msgs,
-            verbosity=pref_verbosity,   # ← даст короткий ответ на техничку
-            safety=True                 # ← мягкий стиль отказа на спорные вещи
+            verbosity=pref_verbosity,
+            safety=True
         )
-    except Exception:
-        reply = "Кажется, у меня заминка со связью. Давай попробуем ещё раз чуть позже 💛"
+    except Exception as e:
+        # Простой фоллбек
+        reply = "что-то с интернетом... попробуй ещё раз?"
 
     await human_typing(context, update.effective_chat.id, reply)
     db.add_msg(user_id, "assistant", reply)
+    
+    # ВАЖНО: отправляем БЕЗ parse_mode для обычного текста
     await update.message.reply_text(reply)
 
 # -------------------- служебные команды (отладка) --------------------
 
 async def pingme_cmd(update, context):
-    """ /pingme 1  → пришлёт сообщение через 1 минуту """
     try:
         minutes = int(context.args[0]) if context.args else 1
     except Exception:
@@ -465,16 +475,15 @@ async def pingme_cmd(update, context):
     when = datetime.now(timezone.utc) + timedelta(minutes=minutes)
 
     async def _once(ctx):
-        await ctx.bot.send_message(chat_id=update.effective_user.id, text="Проверка напоминания: я рядом 💛")
+        await ctx.bot.send_message(chat_id=update.effective_user.id, text="привет! я тут 💛")
 
     context.job_queue.run_once(_once, when=when, data={}, name=f"ping:{update.effective_user.id}")
-    await update.message.reply_text(f"Окей, напишу через {minutes} мин.")
+    await update.message.reply_text(f"окей, напишу через {minutes} мин")
 
 async def jobs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Покажет запланированные напоминания для текущего пользователя, с ближайшим временем."""
     jq = context.application.job_queue
     if jq is None:
-        await update.message.reply_text("JobQueue не инициализирован. Установи extra: pip install 'python-telegram-bot[job-queue]'")
+        await update.message.reply_text("JobQueue не работает...")
         return
 
     user_id = update.effective_user.id
@@ -483,7 +492,7 @@ async def jobs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     rems = db.list_reminders(user_id)
     if not rems:
-        await update.message.reply_text("У тебя пока нет напоминаний. Добавь в /reminders 🌿")
+        await update.message.reply_text("у тебя пока нет напоминаний... добавь в /reminders 🌿")
         return
 
     lines = []
@@ -495,25 +504,11 @@ async def jobs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             j = jobs[0]
             nr = getattr(j, "next_run_time", None)
             when_local = nr.astimezone(tzinfo).strftime("%Y-%m-%d %H:%M:%S") if nr else "?"
-            lines.append(f"• {r['time_local']} ({r.get('rtype') or 'checkin'}, {state}) → {when_local} ({tz_str})")
+            lines.append(f"{r['time_local']} ({r.get('rtype') or 'checkin'}, {state}) → {when_local} ({tz_str})")
         else:
-            lines.append(f"• {r['time_local']} ({r.get('rtype') or 'checkin'}, {state}) → не запланировано")
+            lines.append(f"{r['time_local']} ({r.get('rtype') or 'checkin'}, {state}) → не запланировано")
 
-    await update.message.reply_text("Запланировано:\n" + "\n".join(lines))
-
-TECH_HINT_WORDS = [
-    "алгоритм", "сложность", "big o", "дерево", "граф", "дейкстр", "бфс", "дфс",
-    "sql", "join", "индекс", "python", "код", "скрипт", "регулярк", "регэксп",
-    "массив", "хеш-таблица", "структура данных", "компиляция", "типизация",
-    "доказательство", "матан", "интеграл", "дериватив", "градиент", "ml", "nn"
-]
-
-def is_tech_question(text: str) -> bool:
-    t = (text or "").lower()
-    if "```" in t or "def " in t or "class " in t:
-        return True
-    return any(w in t for w in TECH_HINT_WORDS)
-
+    await update.message.reply_text("запланировано:\n" + "\n".join(lines))
 
 # -------------------- main --------------------
 
@@ -533,7 +528,7 @@ def main():
 
     app.add_handler(CallbackQueryHandler(on_cb))
 
-    # Payments (Stars): pre-checkout + successful
+    # Payments (Stars)
     app.add_handler(PreCheckoutQueryHandler(precheckout_stars))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
 
