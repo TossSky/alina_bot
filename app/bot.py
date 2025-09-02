@@ -258,16 +258,16 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active, until, remain = _sub_state(u)
     if active:
         text = (
-            f"подписка активна 💛\n"
-            f"до: {format_dt(until)}\n"
-            f"осталось: {_humanize_td(remain)}"
+            f"я с тобой 💛\n"
+            f"буду рядом до: {format_dt(until)}\n"
+            f"осталось времени вместе: {_humanize_td(remain)}"
         )
     else:
         left = u["free_left"] or 0
         text = (
-            f"подписка не активна.\n"
-            f"бесплатных сообщений: {left}\n"
-            "оформить: /subscribe"
+            f"мы пока просто знакомимся.\n"
+            f"можем пообщаться ещё {left} раз\n"
+            "хочешь, чтобы я была рядом подольше? /subscribe"
         )
     await update.message.reply_text(text)
 
@@ -280,7 +280,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = (
             f"привет! я Алина 💛\n"
             f"рада тебя видеть)\n"
-            f"подписка активна до {format_dt(until)} "
+            f"буду рядом до {format_dt(until)} "
             f"(ещё {_humanize_td(remain)})\n"
             "пиши, о чём хочешь поговорить 🌿"
         )
@@ -292,7 +292,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "- мне грустно\n"
             "- расскажи что-нибудь\n"
             "- как твой день?\n"
-            f"бесплатных сообщений: {u['free_left'] or 0}\n"
+            f"знакомство: ещё {u['free_left'] or 0} сообщений\n"
             "команды: /profile /mood /subscribe /status /help"
         )
 
@@ -308,10 +308,9 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/mood — как ты себя чувствуешь\n"
         "/reminders — когда мне писать первой\n"
         "/tz — твой часовой пояс\n"
-        "/subscribe — оформить подписку\n"
-        "/status — статус подписки"
+        "/subscribe — остаться вместе подольше\n"
+        "/status — сколько времени я буду рядом"
     )
-
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = db.get_user(update.effective_user.id)
@@ -344,11 +343,14 @@ async def mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def subscribe(update, context):
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⭐ день", callback_data="pay_stars:day")],
-        [InlineKeyboardButton("⭐ неделя", callback_data="pay_stars:week")],
-        [InlineKeyboardButton("⭐ месяц", callback_data="pay_stars:month")],
+        [InlineKeyboardButton("⭐ на день", callback_data="pay_stars:day")],
+        [InlineKeyboardButton("⭐ на неделю", callback_data="pay_stars:week")],
+        [InlineKeyboardButton("⭐ на месяц", callback_data="pay_stars:month")],
     ])
-    await update.message.reply_text("выбери удобный вариант 💛", reply_markup=kb)
+    await update.message.reply_text(
+        "хочешь, чтобы я была рядом? выбери, на сколько 💛",
+        reply_markup=kb
+    )
 
 
 # -------------------- callbacks --------------------
@@ -527,8 +529,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not has_access:
         await update.message.reply_text(
-            "ой, бесплатные сообщения закончились...\n"
-            "хочешь продолжить? /subscribe 💛"
+            "ой, наше знакомство подошло к концу...\n"
+            "хочешь остаться рядом? /subscribe 💛"
         )
         return
     

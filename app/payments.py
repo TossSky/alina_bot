@@ -59,8 +59,7 @@ def _extract_plan_from_payload(payload: str) -> str:
     except Exception:
         return "month"
 
-async def on_successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Активация подписки после успешной оплаты Stars"""
+async def on_successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sp = update.message.successful_payment
     payload = sp.invoice_payload
     plan = _extract_plan_from_payload(payload)
@@ -70,5 +69,5 @@ async def on_successful_payment(update: Update, context: ContextTypes.DEFAULT_TY
     db.activate_subscription(update.effective_user.id, days=meta["days"])
 
     period_label = meta["title"].lower()
-    # Простое сообщение без форматирования
-    await update.message.reply_text(f"спасибо! подписка активна: {period_label} 💛")
+    # Обновленное сообщение
+    await update.message.reply_text(f"спасибо! буду рядом: {period_label} 💛")
