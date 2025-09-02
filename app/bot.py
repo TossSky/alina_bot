@@ -175,28 +175,36 @@ def is_tech_question(text: str) -> bool:
     t = text.lower()
     return any(keyword in t for keyword in TECH_KEYWORDS)
 
-def build_messages(user_id: int, name: str, user_text: str):
+def build_messages(user_id: int, db_name: str | None, user_text: str):
     u = db.get_user(user_id)
     # Увеличим историю до 20 сообщений для лучшего контекста
     history = db.last_dialog(user_id, limit=20)
     
     style = (u["style"] or "gentle")
     verbosity = (u["verbosity"] or "normal")
+    style_hint = STYLE_HINTS.get(style, "")
+    verbose_hint = VERBOSITY_HINTS.get(verbosity, "")
     
     msgs = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "system", "content": AVOID_PATTERNS},
-        {"role": "system", "content": f"имя собеседника: {name or 'друг'}"},
-        {"role": "system", "content": f"{STYLE_HINTS.get(style,'')} {VERBOSITY_HINTS.get(verbosity,'')}".strip()},
     ]
+    # Важно: имя подставляем ТОЛЬКО если пользователь сам сказал "зови меня ..."
+    if db_name:
+        msgs.append({"role": "system", "content": f"Собеседник попросил звать его: {db_name}."})
+    
+    msgs.append({"role": "system", "content": f"{style_hint} {verbose_hint}".strip()})
     
     # Если технический вопрос - добавляем строгое ограничение
     if is_tech_question(user_text):
         msgs.append({"role": "system", "content": TECH_BOUNDARY})
-        # Добавим ещё одно напоминание
-        msgs.append({"role": "system", "content": "ПОМНИ: ты НЕ помогаешь с техническими вопросами. Отвечай как обычная девушка, которая в этом не разбирается."})
+        msgs.append({
+            "role": "system",
+            "content": "ПОМНИ: ты НЕ помогаешь с техническими вопросами. "
+                       "Отвечай как обычная девушка, которая в этом не разбирается."
+        })
     
-    # История
+    # История диалога
     for h in history:
         msgs.append({"role": h["role"], "content": h["content"]})
     
@@ -206,6 +214,7 @@ def build_messages(user_id: int, name: str, user_text: str):
     final_verbosity = "short" if is_tech_question(user_text) else verbosity
     
     return msgs, final_verbosity
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = db.get_user(update.effective_user.id)
@@ -426,7 +435,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # /mood ответы одним словом
     lower = text_in.lower()
     if lower in MOOD_TEMPLATES:
-        # Простой ответ из шаблона
         reply = MOOD_TEMPLATES[lower]
         await human_typing(context, update.effective_chat.id, reply)
         db.add_msg(user_id, "user", text_in)
@@ -447,25 +455,67 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # диалог
     db.add_msg(user_id, "user", text_in)
-    msgs, pref_verbosity = build_messages(user_id, u["name"] or update.effective_user.first_name, text_in)
-    
+    db_name = u["name"]  # имя только если сам просил "зови меня ..."
+    msgs, pref_verbosity = build_messages(user_id, db_name, text_in)
+
     try:
         reply = await llm.chat(
             msgs,
             verbosity=pref_verbosity,
             safety=True
         )
-    except Exception as e:
-        # Простой фоллбек
+        # убираем обращение по имени/нику, если пользователь не просил "зови меня ..."
+        reply = _sanitize_name_address(reply, update.effective_user, db_name)
+    except Exception:
         reply = "что-то с интернетом... попробуй ещё раз?"
 
     await human_typing(context, update.effective_chat.id, reply)
     db.add_msg(user_id, "assistant", reply)
-    
-    # ВАЖНО: отправляем БЕЗ parse_mode для обычного текста
     await update.message.reply_text(reply)
 
+
 # -------------------- служебные команды (отладка) --------------------
+import re
+# ...
+
+def _sanitize_name_address(reply: str, tg_user, db_name: str | None) -> str:
+    """
+    Удаляет обращение по имени/нику в начале ответа,
+    если пользователь НЕ просил «зови меня …».
+    Примеры сносятся: 'Вячеслав,', 'Vjatseslav —', '@nick:', 'Тосский -'.
+    """
+    if not reply:
+        return reply
+
+    # если имя задано пользователем (db_name), позволяем его ИНОГДА,
+    # но всё равно уберём чужие варианты (first_name/username).
+    allowed = set()
+    if db_name:
+        allowed.add(db_name.strip())
+
+    candidates = set()
+    # Telegram-поля
+    if getattr(tg_user, "first_name", None):
+        candidates.add(tg_user.first_name.strip())
+    if getattr(tg_user, "last_name", None):
+        candidates.add(tg_user.last_name.strip())
+    if getattr(tg_user, "username", None):
+        candidates.add(f"@{tg_user.username.strip()}")
+
+    # если имя не назначено, всё из candidates считаем запрещённым
+    banned = candidates if not db_name else (candidates - allowed)
+    banned = {c for c in banned if c}  # убрать пустые
+
+    if not banned:
+        return reply
+
+    # соберём шаблон обращений в начале строки
+    # Примеры: "Имя,", "Имя —", "@ник:", "Имя - ", "Имя: "
+    escaped = [re.escape(x) for x in sorted(banned, key=len, reverse=True)]
+    pattern = r"^\s*(?:%s)\s*[,:\-–—]\s*" % "|".join(escaped)
+    return re.sub(pattern, "", reply, flags=re.IGNORECASE)
+
+
 
 async def pingme_cmd(update, context):
     try:

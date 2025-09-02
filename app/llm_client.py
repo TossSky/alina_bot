@@ -102,7 +102,7 @@ class LLMClient:
     def __init__(self):
         self.provider = (os.getenv("LLM_PROVIDER") or getattr(settings, "llm_provider", "deepseek")).lower()
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY") or getattr(settings, "deepseek_api_key", None)
-        self.deepseek_model = getattr(settings, "deepseek_model", "deepseek-reasoner")
+        self.deepseek_model = getattr(settings, "deepseek_model", "deepseek-chat")
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY") or getattr(settings, "openrouter_api_key", None)
         self.openrouter_model = getattr(settings, "openrouter_model", "openrouter/auto")
         self.ollama_host = getattr(settings, "ollama_host", "http://127.0.0.1:11434")

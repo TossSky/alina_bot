@@ -10,7 +10,7 @@ class Settings(BaseModel):
     llm_provider: str = os.getenv("LLM_PROVIDER", "deepseek")
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
-    openrouter_model: str = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-reasoner")
+    openrouter_model: str = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat")
 
     # оплаты
     stars_day_amount: int = int(os.getenv("STARS_DAY_AMOUNT", "200"))
