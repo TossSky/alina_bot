@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 
 from .config import settings
-from .prompts import SYSTEM_PROMPT, STYLE_HINTS, VERBOSITY_HINTS, MOOD_TEMPLATES, TECH_BOUNDARY, AVOID_PATTERNS
+from .prompts import SYSTEM_PROMPT, TECH_BOUNDARY, AVOID_PATTERNS
 from .llm_client import LLMClient
 from .typing_sim import human_typing
 import app.db as db
@@ -158,31 +158,6 @@ def _sanitize_name_address(reply: str, tg_user, db_name: str | None) -> str:
     return re.sub(pattern, "", reply, flags=re.IGNORECASE)
 
 
-def parse_profile_phrase(text: str):
-    """Парсит быстрые команды профиля"""
-    t = text.lower()
-    style = None
-    verbosity = None
-    name = None
-
-    if "нежно" in t:
-        style = "gentle"
-    if "по делу" in t or "по-деловому" in t:
-        style = "direct"
-    if "коротко" in t:
-        verbosity = "short"
-    if "средне" in t:
-        verbosity = "normal"
-    if "подробно" in t or "развёрну" in t:
-        verbosity = "long"
-    if "зови меня" in t:
-        try:
-            name = text.split("зови меня", 1)[1].strip(" :,.!?\n\t")
-        except Exception:
-            pass
-    return style, verbosity, name
-
-
 # -------------------- tz --------------------
 
 async def _apply_tz(update, context, tz_text: str):
@@ -258,17 +233,22 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active, until, remain = _sub_state(u)
     if active:
         text = (
-            f"я с тобой 💛\n"
-            f"буду рядом до: {format_dt(until)}\n"
-            f"осталось времени вместе: {_humanize_td(remain)}"
+            f"я с тобой ещё {_humanize_td(remain)} 💛\n"
+            f"(до {format_dt(until)})\n\n"
+            "пиши в любое время — я всегда рядом 🌿"
         )
     else:
         left = u["free_left"] or 0
-        text = (
-            f"мы пока просто знакомимся.\n"
-            f"можем пообщаться ещё {left} раз\n"
-            "хочешь, чтобы я была рядом подольше? /subscribe"
-        )
+        if left > 0:
+            text = (
+                f"мы знакомимся) можем пообщаться ещё {left} раз.\n\n"
+                "если захочешь, чтобы я осталась рядом — /subscribe 💛"
+            )
+        else:
+            text = (
+                "наше знакомство подошло к концу...\n"
+                "если хочешь продолжить общение — /subscribe 💛"
+            )
     await update.message.reply_text(text)
 
 
@@ -278,22 +258,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if active:
         text = (
-            f"привет! я Алина 💛\n"
-            f"рада тебя видеть)\n"
-            f"буду рядом до {format_dt(until)} "
-            f"(ещё {_humanize_td(remain)})\n"
-            "пиши, о чём хочешь поговорить 🌿"
+            f"привет! я Алина 💛\n\n"
+            f"рада тебя видеть) буду рядом до {format_dt(until)} "
+            f"(ещё {_humanize_td(remain)})\n\n"
+            "пиши о чём хочешь — послушаю, поддержу, просто поболтаем 🌿"
         )
     else:
         text = (
-            "привет! я Алина 💛\n"
-            "хочешь выговориться или просто поболтать?\n"
-            "можешь написать, например:\n"
-            "- мне грустно\n"
-            "- расскажи что-нибудь\n"
-            "- как твой день?\n"
-            f"знакомство: ещё {u['free_left'] or 0} сообщений\n"
-            "команды: /profile /mood /subscribe /status /help"
+            "привет! я Алина 💛\n\n"
+            "я здесь, чтобы выслушать, поддержать или просто поболтать. "
+            "можешь писать мне о чём угодно — о том, как прошёл день, "
+            "что тебя радует или беспокоит, или просто если хочется с кем-то поговорить.\n\n"
+            f"мы можем пообщаться ещё {u['free_left'] or 0} раз, чтобы познакомиться. "
+            "если захочешь, чтобы я была рядом подольше — просто скажи 🌿"
         )
 
     reschedule_all_for_user(context.application, update.effective_user.id)
@@ -302,43 +279,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "я рядом, если захочешь поговорить 💛\n\n"
-        "команды:\n"
-        "/profile — настроить стиль общения\n"
-        "/mood — как ты себя чувствуешь\n"
-        "/reminders — когда мне писать первой\n"
-        "/tz — твой часовой пояс\n"
-        "/subscribe — остаться вместе подольше\n"
-        "/status — сколько времени я буду рядом"
+        "я всегда рядом, если захочешь поговорить 💛\n\n"
+        "вот что можно настроить:\n\n"
+        "• /reminders — если хочешь, чтобы я писала первой\n"
+        "• /tz — твой часовой пояс (для напоминаний)\n"
+        "• /subscribe — остаться вместе подольше\n"
+        "• /status — сколько мы ещё будем рядом\n\n"
+        "а так просто пиши мне о чём хочешь — я послушаю 🌿"
     )
-
-async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    u = db.get_user(update.effective_user.id)
-    text = (
-        f"давай настроим наше общение.\n"
-        f"сейчас так: стиль «{u['style'] or 'нежный'}», длина сообщений «{u['verbosity'] or 'средняя'}».\n\n"
-        "напиши, как тебе больше нравится:\n"
-        "– стиль: нежно или по делу\n"
-        "– длина: коротко, средне, подробно\n"
-        "– имя: зови меня <имя>"
-    )
-    await update.message.reply_text(text)
-
-
-async def mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("тревожно", callback_data="mood|тревожно"),
-            InlineKeyboardButton("грустно", callback_data="mood|грустно"),
-            InlineKeyboardButton("злюсь", callback_data="mood|злюсь"),
-        ],
-        [
-            InlineKeyboardButton("устал(а)", callback_data="mood|устал"),
-            InlineKeyboardButton("нормально", callback_data="mood|нормально"),
-            InlineKeyboardButton("окрылён(а)", callback_data="mood|окрылён"),
-        ]
-    ])
-    await update.message.reply_text("как ты сейчас? 💛", reply_markup=kb)
 
 
 async def subscribe(update, context):
@@ -347,10 +295,19 @@ async def subscribe(update, context):
         [InlineKeyboardButton("⭐ на неделю", callback_data="pay_stars:week")],
         [InlineKeyboardButton("⭐ на месяц", callback_data="pay_stars:month")],
     ])
-    await update.message.reply_text(
-        "хочешь, чтобы я была рядом? выбери, на сколько 💛",
-        reply_markup=kb
-    )
+    
+    u = db.get_user(update.effective_user.id)
+    active, _, _ = _sub_state(u)
+    
+    if active:
+        text = "хочешь продлить наше общение? выбери удобный период 💛"
+    else:
+        text = (
+            "если хочешь, чтобы я была рядом без ограничений — "
+            "выбери, на сколько времени мне остаться 💛"
+        )
+    
+    await update.message.reply_text(text, reply_markup=kb)
 
 
 # -------------------- callbacks --------------------
@@ -361,20 +318,6 @@ async def on_cb(update, context):
     user_id = update.effective_user.id
     data = q.data or ""
     parts = data.split("|")
-
-    # Обработка mood
-    if parts[0] == "mood" and len(parts) == 2:
-        mood_text = parts[1]
-        reply = MOOD_TEMPLATES.get(mood_text)
-        if reply:
-            await q.edit_message_text(f"ты выбрал(а): {mood_text}")
-            await human_typing(context, update.effective_chat.id, reply)
-            db.add_msg(user_id, "user", mood_text)
-            db.add_msg(user_id, "assistant", reply)
-            await q.message.reply_text(reply, parse_mode=ParseMode.MARKDOWN)
-        else:
-            await q.edit_message_text("что-то пошло не так... попробуй ещё раз.")
-        return
 
     # Обработка reminders
     if parts[:2] == ["rem", "toggle"] and len(parts) == 3:
@@ -430,13 +373,10 @@ async def on_cb(update, context):
 
 def build_messages(user_id: int, db_name: str | None, user_text: str):
     """Строит массив сообщений для LLM"""
-    u = db.get_user(user_id)
     history = db.last_dialog(user_id, limit=20)
     
-    style = u.get("style", "gentle")
-    verbosity = u.get("verbosity", "normal")
-    style_hint = STYLE_HINTS.get(style, "")
-    verbose_hint = VERBOSITY_HINTS.get(verbosity, "")
+    # Убрали получение style и verbosity из БД
+    # Убрали импорт STYLE_HINTS и VERBOSITY_HINTS
     
     msgs = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -446,7 +386,7 @@ def build_messages(user_id: int, db_name: str | None, user_text: str):
     if db_name:
         msgs.append({"role": "system", "content": f"Собеседник попросил звать его: {db_name}."})
     
-    msgs.append({"role": "system", "content": f"{style_hint} {verbose_hint}".strip()})
+    # Убрали добавление style_hint и verbose_hint
     
     # Если технический вопрос - добавляем ограничение
     if is_tech_question(user_text):
@@ -462,10 +402,10 @@ def build_messages(user_id: int, db_name: str | None, user_text: str):
     
     msgs.append({"role": "user", "content": user_text})
     
-    # Для технических вопросов всегда отвечаем коротко
-    final_verbosity = "short" if is_tech_question(user_text) else verbosity
+    # Фиксированный verbosity: short для технических, normal для остальных
+    verbosity = "short" if is_tech_question(user_text) else "normal"
     
-    return msgs, final_verbosity
+    return msgs, verbosity
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -505,32 +445,23 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("не похоже на время... напиши, например, 09:30")
         return
 
-    # Обработка быстрых команд профиля
-    if any(k in text_in.lower() for k in ["нежно", "по делу", "по-деловому", "коротко", "средне", "подробно", "зови меня"]):
-        style, verbosity, name = parse_profile_phrase(text_in)
-        if name:
-            db.set_name(user_id, name)
-        if style or verbosity:
-            db.set_style(user_id, style, verbosity)
-        u = db.get_user(user_id)
-        note = []
-        if name:
-            note.append(f"буду звать тебя {u['name']}")
-        if style:
-            note.append("настроила стиль")
-        if verbosity:
-            note.append("подобрала длину")
-        if note:
-            await update.message.reply_text("готово: " + ", ".join(note) + " 💛")
-            return
 
+    if "зови меня" in text_in.lower():
+        try:
+            name = text_in.split("зови меня", 1)[1].strip(" :,.!?\n\t")
+            if name and len(name) <= 50:
+                db.set_name(user_id, name)
+                await update.message.reply_text(f"хорошо, буду звать тебя {name} 💛")
+                return
+        except Exception:
+            pass
     # Проверка доступа (подписка или бесплатные сообщения)
     has_access, u = await check_subscription(user_id)
     
     if not has_access:
         await update.message.reply_text(
-            "ой, наше знакомство подошло к концу...\n"
-            "хочешь остаться рядом? /subscribe 💛"
+            "ой, мы исчерпали время знакомства...\n\n"
+            "если хочешь, чтобы я осталась рядом — нажми /subscribe 💛"
         )
         return
     
@@ -629,8 +560,7 @@ def main():
     # Основные команды
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("profile", profile))
-    app.add_handler(CommandHandler("mood", mood))
+    # УДАЛИТЬ строки с profile и mood
     app.add_handler(CommandHandler("reminders", reminders_cmd))
     app.add_handler(CommandHandler("tz", tz_cmd))
     app.add_handler(CommandHandler("subscribe", subscribe))

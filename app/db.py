@@ -177,13 +177,7 @@ def set_name(user_id: int, name: str):
 
 
 def set_style(user_id: int, style: str = None, verbosity: str = None):
-    fields = {}
-    if style and style in ["gentle", "direct"]:
-        fields["style"] = style
-    if verbosity and verbosity in ["short", "normal", "long"]:
-        fields["verbosity"] = verbosity
-    if fields:
-        update_user(user_id, **fields)
+    pass
 
 
 # ---- подписка и платежи ----

@@ -87,7 +87,7 @@ async def _send_reminder(context: ContextTypes.DEFAULT_TYPE):
     # Профиль пользователя
     u = db.get_user(user_id)
     name = u.get("name") or ""
-    style = u.get("style") or "gentle"
+    style = "gentle"
     
     # В 80% случаев используем простой фоллбек
     if random.random() < 0.8:

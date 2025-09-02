@@ -15,25 +15,12 @@ from .prompts import REFUSAL_STYLE, HUMANITY_HINTS
 DEFAULT_TEMPERATURE = 0.92
 DEFAULT_MAX_TOKENS = 400
 
-# Профили под длину ответа
-VERBOSITY_PROFILES = {
-    "short":  {"max_tokens": 150, "temperature": 0.95},
-    "normal": {"max_tokens": 300, "temperature": 0.92},
-    "long":   {"max_tokens": 450, "temperature": 0.90},
-}
-
 # Фразы для добавления человечности
 HUMAN_TOUCHES = {
     "thinking": ["хм", "ну", "эм", "вот", "кстати"],
     "uncertainty": ["наверное", "может", "вроде", "кажется", "походу"],
     "endings": [")", "...", "🌿", "💛", ""],
 }
-
-def _pick_profile(verbosity: Optional[str]) -> Dict[str, float]:
-    if not verbosity:
-        return {"max_tokens": DEFAULT_MAX_TOKENS, "temperature": DEFAULT_TEMPERATURE}
-    verbosity = verbosity.lower().strip()
-    return VERBOSITY_PROFILES.get(verbosity, {"max_tokens": DEFAULT_MAX_TOKENS, "temperature": DEFAULT_TEMPERATURE})
 
 def _humanize_text(text: str) -> str:
     """Добавляет человеческие штрихи к тексту"""
@@ -166,14 +153,16 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         *,
-        verbosity: Optional[str] = None,
+        verbosity: Optional[str] = None,  # Оставляем для совместимости
         safety: bool = False,
     ) -> str:
         """Отправляет запрос к DeepSeek API"""
         
-        prof = _pick_profile(verbosity)
-        temperature = float(temperature if temperature is not None else prof["temperature"])
-        max_tokens = int(max_tokens if max_tokens is not None else prof["max_tokens"])
+        temperature = float(temperature if temperature is not None else DEFAULT_TEMPERATURE)
+        if verbosity == "short":
+            max_tokens = 150
+        else:
+            max_tokens = int(max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS)
 
         # Добавляем подсказки для человечности
         if random.random() < 0.3:
