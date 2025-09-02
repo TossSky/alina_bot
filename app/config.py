@@ -1,3 +1,4 @@
+# app/config.py
 import os
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -7,8 +8,19 @@ load_dotenv()
 class Settings(BaseModel):
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     free_messages: int = int(os.getenv("FREE_MESSAGES", "10"))
+
+    # LLM провайдеры
     llm_provider: str = os.getenv("LLM_PROVIDER", "deepseek")
+
+    # DeepSeek
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
+    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+
+    # Gemini
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") # По умолчанию gemini-1.5-flash
+
+    # OpenRouter
     openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
     openrouter_model: str = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat")
 

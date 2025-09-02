@@ -5,6 +5,7 @@ import random
 from datetime import time as dtime, timezone, datetime, timedelta
 from zoneinfo import ZoneInfo
 from telegram.ext import ContextTypes, Application
+from telegram.constants import ParseMode
 
 import app.db as db
 from .llm_client import LLMClient
@@ -112,7 +113,7 @@ async def _send_reminder(context: ContextTypes.DEFAULT_TYPE):
             text = _pick_fallback(rtype)
 
     # Отправляем БЕЗ форматирования
-    await context.bot.send_message(chat_id=chat_id, text=text)
+    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
 
 # ----- JobQueue glue -----
 def _job_queue(app: Application):
