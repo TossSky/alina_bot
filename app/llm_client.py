@@ -232,7 +232,7 @@ class LLMClient:
                 return await self.chat(
                     messages, 
                     temperature=temperature,
-                    max_tokens=300,
+                    max_tokens=500,
                     verbosity="normal",
                     safety=safety
                 )
