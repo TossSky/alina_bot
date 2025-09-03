@@ -17,6 +17,7 @@ from .prompts import REFUSAL_STYLE
 DEFAULT_TEMPERATURE = 0.92
 DEFAULT_MAX_TOKENS = 500  # Уменьшено для избежания таймаутов
 MAX_RESPONSE_LENGTH = 800  # Максимальная длина ответа в символах
+SHORT_RESPONSE_LENGTH = 300
 
 def _format_lists(text: str) -> str:
     """Форматирует нумерованные списки с переносами строк"""
@@ -171,10 +172,10 @@ class LLMClient:
         
         # Адаптивный max_tokens, но с разумными ограничениями
         if verbosity == "short":
-            max_tokens = 150
+            max_tokens = SHORT_RESPONSE_LENGTH
         elif verbosity == "long":
             # Для длинных ответов ограничиваем, чтобы избежать таймаутов
-            max_tokens = 600  
+            max_tokens = MAX_RESPONSE_LENGTH  
         else:
             max_tokens = int(max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS)
 
@@ -227,12 +228,12 @@ class LLMClient:
         except httpx.TimeoutException as e:
             print(f"[LLM] Timeout ошибка: {e}", file=sys.stderr)
             # При таймауте пробуем более короткий запрос
-            if verbosity == "long" or max_tokens > 300:
+            if verbosity == "long" or max_tokens > 500:
                 print("[LLM] Повторяем с меньшим лимитом токенов...")
                 return await self.chat(
                     messages, 
                     temperature=temperature,
-                    max_tokens=500,
+                    max_tokens=DEFAULT_MAX_TOKENS,
                     verbosity="normal",
                     safety=safety
                 )
