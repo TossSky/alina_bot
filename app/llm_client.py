@@ -233,7 +233,7 @@ class LLMClient:
                     messages, 
                     temperature=temperature,
                     max_tokens=300,
-                    verbosity="short",
+                    verbosity="normal",
                     safety=safety
                 )
             return "хм, что-то долго думаю... может, спросишь попроще?"
