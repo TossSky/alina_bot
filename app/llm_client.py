@@ -2,6 +2,8 @@
 from __future__ import annotations
 import asyncio
 import os
+import sys
+import traceback
 from typing import List, Dict, Optional
 import random
 import re
@@ -13,7 +15,7 @@ from .prompts import REFUSAL_STYLE
 
 # Базовые дефолты
 DEFAULT_TEMPERATURE = 0.92
-DEFAULT_MAX_TOKENS = 400
+DEFAULT_MAX_TOKENS = 600  # Увеличено с 400 для длинных ответов
 
 def _format_lists(text: str) -> str:
     """Форматирует нумерованные списки с переносами строк"""
@@ -94,7 +96,8 @@ class LLMClient:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0))
+            # Увеличиваем timeout для длинных ответов
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
         return self._client
 
     async def chat(
@@ -109,10 +112,19 @@ class LLMClient:
         """Отправляет запрос к DeepSeek API"""
         
         temperature = float(temperature if temperature is not None else DEFAULT_TEMPERATURE)
+        
+        # Адаптивный max_tokens в зависимости от контекста
         if verbosity == "short":
-            max_tokens = 150
+            max_tokens = 200
+        elif max_tokens is None:
+            # Если в сообщении упоминаются числа больше 10, увеличиваем лимит
+            last_msg = messages[-1].get("content", "")
+            if any(word in last_msg.lower() for word in ["20", "15", "10", "много", "несколько", "факт"]):
+                max_tokens = 1200  # Больший лимит для списков
+            else:
+                max_tokens = DEFAULT_MAX_TOKENS
         else:
-            max_tokens = int(max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS)
+            max_tokens = int(max_tokens)
 
         if safety:
             messages = [{"role": "system", "content": REFUSAL_STYLE}] + messages
@@ -120,7 +132,7 @@ class LLMClient:
         # Добавляем явное указание про форматирование списков
         messages.append({
             "role": "system", 
-            "content": "ВАЖНО: Если пишешь список, ОБЯЗАТЕЛЬНО делай перенос строки после каждого пункта!"
+            "content": "ВАЖНО: Если пишешь список, ОБЯЗАТЕЛЬНО делай перенос строки после каждого пункта! Но помни - максимум 5 пунктов, даже если просили больше."
         })
 
         url = "https://api.deepseek.com/v1/chat/completions"
@@ -137,21 +149,52 @@ class LLMClient:
             "frequency_penalty": 0.3,
         }
 
+        # Отладочный вывод
+        print(f"[LLM] Запрос с max_tokens={max_tokens}, температура={temperature}")
+        
         client = await self._get_client()
         try:
             resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
-            txt = data["choices"][0]["message"]["content"]
+            
+            # Проверяем, есть ли finish_reason
+            choice = data.get("choices", [{}])[0]
+            finish_reason = choice.get("finish_reason")
+            
+            if finish_reason == "length":
+                print(f"[LLM] ВНИМАНИЕ: Ответ обрезан из-за лимита токенов (max_tokens={max_tokens})")
+                
+            txt = choice.get("message", {}).get("content", "")
+            
+            # Отладка длины ответа
+            print(f"[LLM] Получен ответ: {len(txt)} символов")
+            
             return _postprocess(txt)
+            
         except httpx.HTTPStatusError as e:
+            print(f"[LLM] HTTP ошибка {e.response.status_code}: {e.response.text}", file=sys.stderr)
+            
             if e.response.status_code == 401:
                 return "ой, проблемы с ключом API... проверь настройки"
             elif e.response.status_code == 429:
                 return "секунду, слишком много сообщений... попробуй чуть позже?"
+            elif e.response.status_code == 400:
+                # Возможно, слишком длинный запрос
+                error_detail = e.response.text
+                print(f"[LLM] Детали ошибки 400: {error_detail}", file=sys.stderr)
+                return "хм, что-то сложновато... давай попроще?"
             else:
                 return "что-то с подключением... попробуй ещё раз?"
-        except Exception:
+                
+        except httpx.TimeoutException as e:
+            print(f"[LLM] Timeout ошибка: {e}", file=sys.stderr)
+            return "ответ занимает слишком много времени... может, попроще спросить?"
+            
+        except Exception as e:
+            # Полный traceback для отладки
+            print(f"[LLM] Неожиданная ошибка: {e}", file=sys.stderr)
+            traceback.print_exc()
             return "ой, что-то связь барахлит... попробуй ещё раз?"
 
     async def aclose(self):
