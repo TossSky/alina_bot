@@ -2,6 +2,8 @@
 import asyncio
 import time
 import re
+import sys
+import traceback
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -375,9 +377,6 @@ def build_messages(user_id: int, db_name: str | None, user_text: str):
     """Строит массив сообщений для LLM"""
     history = db.last_dialog(user_id, limit=20)
     
-    # Убрали получение style и verbosity из БД
-    # Убрали импорт STYLE_HINTS и VERBOSITY_HINTS
-    
     msgs = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "system", "content": AVOID_PATTERNS},
@@ -385,8 +384,6 @@ def build_messages(user_id: int, db_name: str | None, user_text: str):
     
     if db_name:
         msgs.append({"role": "system", "content": f"Собеседник попросил звать его: {db_name}."})
-    
-    # Убрали добавление style_hint и verbose_hint
     
     # Если технический вопрос - добавляем ограничение
     if is_tech_question(user_text):
@@ -402,8 +399,13 @@ def build_messages(user_id: int, db_name: str | None, user_text: str):
     
     msgs.append({"role": "user", "content": user_text})
     
-    # Фиксированный verbosity: short для технических, normal для остальных
-    verbosity = "short" if is_tech_question(user_text) else "normal"
+    # Определяем verbosity на основе контекста
+    if is_tech_question(user_text):
+        verbosity = "short"
+    elif any(word in user_text.lower() for word in ["20", "15", "много", "несколько", "факт", "список"]):
+        verbosity = "long"  # Для длинных списков
+    else:
+        verbosity = "normal"
     
     return msgs, verbosity
 
@@ -412,6 +414,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик текстовых сообщений"""
     user_id = update.effective_user.id
     text_in = (update.message.text or "").strip()
+
+    # Отладка входящего сообщения
+    print(f"[BOT] Получено от {user_id}: {text_in[:100]}...")
 
     # Ожидание ввода часового пояса
     if context.user_data.get("await_tz"):
@@ -476,22 +481,38 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Генерируем ответ
     db_name = u["name"]
     msgs, pref_verbosity = build_messages(user_id, db_name, text_in)
+    
+    print(f"[BOT] Генерация ответа с verbosity={pref_verbosity}")
 
     try:
+        # Определяем max_tokens для длинных ответов
+        max_tokens = None
+        if pref_verbosity == "long":
+            max_tokens = 1200  # Увеличенный лимит для списков
+        
         reply = await llm.chat(
             msgs,
             verbosity=pref_verbosity,
+            max_tokens=max_tokens,
             safety=True
         )
         reply = _sanitize_name_address(reply, update.effective_user, db_name)
+        print(f"[BOT] Ответ сгенерирован: {len(reply)} символов")
     except Exception as e:
-        print(f"LLM error: {e}")
+        print(f"[BOT] LLM error: {e}", file=sys.stderr)
+        traceback.print_exc()
         reply = "что-то с интернетом... попробуй ещё раз?"
 
     # Имитация печати и отправка
     await human_typing(context, update.effective_chat.id, reply)
     db.add_msg(user_id, "assistant", reply)
-    await update.message.reply_text(reply, parse_mode=ParseMode.MARKDOWN)
+    
+    try:
+        await update.message.reply_text(reply, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        print(f"[BOT] Ошибка отправки с Markdown: {e}")
+        # Если ошибка с форматированием - отправляем без него
+        await update.message.reply_text(reply)
 
 
 # -------------------- служебные команды (отладка) --------------------
@@ -560,7 +581,6 @@ def main():
     # Основные команды
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
-    # УДАЛИТЬ строки с profile и mood
     app.add_handler(CommandHandler("reminders", reminders_cmd))
     app.add_handler(CommandHandler("tz", tz_cmd))
     app.add_handler(CommandHandler("subscribe", subscribe))
