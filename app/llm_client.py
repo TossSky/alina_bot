@@ -9,58 +9,11 @@ import re
 import httpx
 
 from .config import settings
-from .prompts import REFUSAL_STYLE, HUMANITY_HINTS
+from .prompts import REFUSAL_STYLE
 
 # Базовые дефолты
 DEFAULT_TEMPERATURE = 0.92
 DEFAULT_MAX_TOKENS = 400
-
-# Фразы для добавления человечности
-HUMAN_TOUCHES = {
-    "thinking": ["хм", "ну", "эм", "вот", "кстати"],
-    "uncertainty": ["наверное", "может", "вроде", "кажется", "походу"],
-    "endings": [")", "...", "🌿", "💛", ""],
-}
-
-def _humanize_text(text: str) -> str:
-    """Добавляет человеческие штрихи к тексту"""
-    if not text:
-        return text
-    
-    # Иногда добавляем вводные слова
-    if random.random() < 0.3:
-        intro = random.choice(HUMAN_TOUCHES["thinking"])
-        text = f"{intro}, {text[0].lower()}{text[1:]}"
-    
-    # Иногда добавляем неуверенность
-    if random.random() < 0.2:
-        uncertainty = random.choice(HUMAN_TOUCHES["uncertainty"])
-        words = text.split()
-        if len(words) > 3:
-            pos = random.randint(1, len(words) - 2)
-            words.insert(pos, uncertainty)
-            text = " ".join(words)
-    
-    # Иногда делаем "опечатку" (очень редко)
-    if random.random() < 0.05:
-        text = _add_typo(text)
-    
-    return text
-
-def _add_typo(text: str) -> str:
-    """Добавляет реалистичную опечатку"""
-    typos = [
-        ("что", "чт"),
-        ("сейчас", "счас"),  
-        ("может", "мжет"),
-        ("привет", "првет"),
-        ("спасибо", "спсибо"),
-    ]
-    for correct, typo in typos:
-        if correct in text.lower():
-            text = text.replace(correct, typo, 1)
-            break
-    return text
 
 def _format_lists(text: str) -> str:
     """Форматирует нумерованные списки с переносами строк"""
@@ -119,9 +72,6 @@ def _postprocess(text: str) -> str:
 
     # Форматируем списки
     t = _format_lists(t)
-    
-    # Добавляем человечности
-    t = _humanize_text(t)
 
     # Заменяем Markdown для Telegram
     t = re.sub(r'\*\*(.*?)\*\*', r'*\1*', t)
@@ -163,11 +113,6 @@ class LLMClient:
             max_tokens = 150
         else:
             max_tokens = int(max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS)
-
-        # Добавляем подсказки для человечности
-        if random.random() < 0.3:
-            hint = random.choice(list(HUMANITY_HINTS.values()))
-            messages = messages + [{"role": "system", "content": hint}]
 
         if safety:
             messages = [{"role": "system", "content": REFUSAL_STYLE}] + messages
