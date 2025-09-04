@@ -264,5 +264,10 @@ class LLMClient:
     async def aclose(self):
         """Закрывает OpenAI клиент"""
         if self._client is not None:
-            await self._client.close()
+            # Сначала закрываем HTTP клиент, если он есть
+            if hasattr(self._client, '_http_client') and self._client._http_client:
+                await self._client._http_client.aclose()
+            # Потом закрываем сам OpenAI клиент
+            if hasattr(self._client, 'close'):
+                await self._client.close()
             self._client = None
