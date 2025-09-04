@@ -13,8 +13,8 @@ from .config import settings
 from .prompts import REFUSAL_STYLE
 
 # Базовые дефолты
-DEFAULT_TEMPERATURE = 1.0
-DEFAULT_MAX_TOKENS = 800  # Увеличиваем дефолт для полных ответов
+DEFAULT_temperature = 1.1
+DEFAULT_MAX_TOKENS = 2000  # Увеличиваем дефолт для полных ответов
 
 
 def _format_lists(text: str) -> str:
