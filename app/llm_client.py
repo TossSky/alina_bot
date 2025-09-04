@@ -215,11 +215,11 @@ class LLMClient:
 
         # Добавляем указания про формат ответа
         last_user_msg = messages[-1].get("content", "").lower()
-        # if any(word in last_user_msg for word in ["факт", "пункт", "список", "причин", "способ"]):
-        #     messages.append({
-        #         "role": "system", 
-        #         "content": "Отвечай полно и интересно. Если нужен список - делай его с переносами строк, каждый пункт с новой строки."
-        #     })
+        if any(word in last_user_msg for word in ["факт", "пункт", "список", "причин", "способ"]):
+            messages.append({
+                "role": "system", 
+                "content": "Отвечай полно и интересно. Если нужен список - делай его с переносами строк, каждый пункт с новой строки."
+            })
 
         print(f"[LLM] Запрос к {self.model} с max_tokens={max_tokens}, температура={temperature}, verbosity={verbosity}")
         
