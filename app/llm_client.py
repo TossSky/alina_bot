@@ -16,7 +16,7 @@ from .prompts import REFUSAL_STYLE
 
 # Базовые дефолты
 DEFAULT_TEMPERATURE = 0.92
-DEFAULT_MAX_TOKENS = 500  # Уменьшено для избежания таймаутов
+DEFAULT_max_completion_tokens = 500  # Уменьшено для избежания таймаутов
 MAX_RESPONSE_LENGTH = 800  # Максимальная длина ответа в символах
 SHORT_RESPONSE_LENGTH = 300
 
@@ -165,7 +165,7 @@ class LLMClient:
         ]
         
         try:
-            shortened = await self._make_request(messages, temperature=0.7, max_tokens=400)
+            shortened = await self._make_request(messages, temperature=0.7, max_completion_tokens=400)
             print(f"[LLM] Ответ сокращён до {len(shortened)} символов")
             return shortened
         except Exception as e:
@@ -180,7 +180,7 @@ class LLMClient:
             return original_text[:MAX_RESPONSE_LENGTH] + "..."
 
     @_openai_error_handler
-    async def _make_request(self, messages: List[Dict[str, str]], temperature: float, max_tokens: int) -> str:
+    async def _make_request(self, messages: List[Dict[str, str]], temperature: float, max_completion_tokens: int) -> str:
         """Внутренний метод для выполнения запроса к OpenAI API"""
         client = await self._get_client()
         
@@ -188,7 +188,7 @@ class LLMClient:
             model=self.model,
             messages=messages,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
             top_p=0.95,
             frequency_penalty=0.3,
         )
@@ -198,7 +198,7 @@ class LLMClient:
         finish_reason = choice.finish_reason
         
         if finish_reason == "length":
-            print(f"[LLM] ВНИМАНИЕ: Ответ обрезан из-за лимита токенов (max_tokens={max_tokens})")
+            print(f"[LLM] ВНИМАНИЕ: Ответ обрезан из-за лимита токенов (max_completion_tokens={max_completion_tokens})")
         
         return choice.message.content or ""
 
@@ -206,7 +206,7 @@ class LLMClient:
         self,
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
         *,
         verbosity: Optional[str] = None,
         safety: bool = False,
@@ -215,14 +215,14 @@ class LLMClient:
         
         temperature = float(temperature if temperature is not None else DEFAULT_TEMPERATURE)
         
-        # Адаптивный max_tokens, но с разумными ограничениями
+        # Адаптивный max_completion_tokens, но с разумными ограничениями
         if verbosity == "short":
-            max_tokens = SHORT_RESPONSE_LENGTH
+            max_completion_tokens = SHORT_RESPONSE_LENGTH
         elif verbosity == "long":
             # Для длинных ответов ограничиваем, чтобы избежать таймаутов
-            max_tokens = MAX_RESPONSE_LENGTH  
+            max_completion_tokens = MAX_RESPONSE_LENGTH  
         else:
-            max_tokens = int(max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS)
+            max_completion_tokens = int(max_completion_tokens if max_completion_tokens is not None else DEFAULT_max_completion_tokens)
 
         if safety:
             messages = [{"role": "system", "content": REFUSAL_STYLE}] + messages
@@ -242,10 +242,10 @@ class LLMClient:
             })
 
         # Отладочный вывод
-        print(f"[LLM] Запрос к {self.model} с max_tokens={max_tokens}, температура={temperature}")
+        print(f"[LLM] Запрос к {self.model} с max_completion_tokens={max_completion_tokens}, температура={temperature}")
         
         try:
-            txt = await self._make_request(messages, temperature, max_tokens)
+            txt = await self._make_request(messages, temperature, max_completion_tokens)
             
             # Проверяем длину ответа
             if len(txt) > MAX_RESPONSE_LENGTH:

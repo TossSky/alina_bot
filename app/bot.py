@@ -485,15 +485,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"[BOT] Генерация ответа с verbosity={pref_verbosity}")
 
     try:
-        # Определяем max_tokens для длинных ответов
-        max_tokens = None
+        # Определяем max_completion_tokens для длинных ответов
+        max_completion_tokens = None
         if pref_verbosity == "long":
-            max_tokens = 1200  # Увеличенный лимит для списков
+            max_completion_tokens = 1200  # Увеличенный лимит для списков
         
         reply = await llm.chat(
             msgs,
             verbosity=pref_verbosity,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
             safety=True
         )
         reply = _sanitize_name_address(reply, update.effective_user, db_name)

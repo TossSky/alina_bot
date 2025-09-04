@@ -59,8 +59,8 @@ async def test_openai_connection():
                 {"role": "system", "content": "Ответь коротко и дружелюбно."},
                 {"role": "user", "content": "Привет! Как дела?"}
             ],
-            max_tokens=100,
-            temperature=0.7
+            max_completion_tokens=100,
+            temperature=1
         )
         
         message = response.choices[0].message.content

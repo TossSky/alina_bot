@@ -41,7 +41,7 @@ async def simple_test():
         response = await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": "Say 'Hello test'"}],
-            max_tokens=10
+            max_completion_tokens=10
         )
         
         print(f"✅ Успех! Ответ: {response.choices[0].message.content}")
