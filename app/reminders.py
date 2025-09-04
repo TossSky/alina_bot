@@ -111,8 +111,8 @@ async def _send_reminder(context: ContextTypes.DEFAULT_TYPE):
 
         try:
             llm = _get_llm()
-            text = await llm.chat(msgs, temperature=1, max_completion_tokens=80, verbosity="short")
-            # Обрезаем, если слишком длинное
+            text = await llm.chat(msgs, temperature=1.0, max_tokens=100, verbosity="short")
+            # Если сгенерировалось слишком длинное, обрезаем
             if text and len(text) > 150:
                 text = text[:150].rsplit(" ", 1)[0] + "..."
         except Exception:

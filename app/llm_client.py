@@ -13,10 +13,9 @@ from .config import settings
 from .prompts import REFUSAL_STYLE
 
 # Базовые дефолты
-DEFAULT_TEMPERATURE = 1
-DEFAULT_max_completion_tokens = 500
-MAX_RESPONSE_LENGTH = 800
-SHORT_RESPONSE_LENGTH = 300
+DEFAULT_TEMPERATURE = 1.0
+DEFAULT_MAX_TOKENS = 800  # Увеличиваем дефолт для полных ответов
+
 
 def _format_lists(text: str) -> str:
     """Форматирует нумерованные списки с переносами строк"""
@@ -51,8 +50,10 @@ def _format_lists(text: str) -> str:
             text = ''.join(parts).strip()
             break
     
+    # Форматируем списки с тире
     text = re.sub(r'(?:^|\s)[-•]\s+', '\n• ', text)
     return text
+
 
 def _postprocess(text: str) -> str:
     """Постобработка ответа"""
@@ -60,15 +61,24 @@ def _postprocess(text: str) -> str:
         return text
 
     t = text.strip()
+    
+    # Убираем префикс "Алина:"
     for prefix in ("Алина:", "Алина —", "Алина -"):
         if t.startswith(prefix):
             t = t[len(prefix):].strip()
             break
 
+    # Форматируем списки
     t = _format_lists(t)
+    
+    # Заменяем жирный шрифт на курсив для Telegram
     t = re.sub(r'\*\*(.*?)\*\*', r'*\1*', t)
+    
+    # Убираем лишние переносы строк
     t = re.sub(r'\n{3,}', '\n\n', t)
+    
     return t.strip()
+
 
 class LLMClient:
     """Клиент для работы с OpenAI API"""
@@ -96,7 +106,12 @@ class LLMClient:
                 timeout=httpx.Timeout(30.0, connect=10.0)
             )
 
-    async def _make_request(self, messages: List[Dict[str, str]], temperature: float, max_completion_tokens: int) -> str:
+    async def _make_request(
+        self, 
+        messages: List[Dict[str, str]], 
+        temperature: float, 
+        max_tokens: int
+    ) -> str:
         """Выполняет запрос к OpenAI API"""
         http_client = None
         openai_client = None
@@ -116,21 +131,23 @@ class LLMClient:
             
             # Выполняем запрос
             print(f"[LLM] Отправляем запрос к модели {self.model}")
+            print(f"[LLM] Параметры: temperature={temperature}, max_tokens={max_tokens}")
+            
             response = await openai_client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
-                max_completion_tokens=max_completion_tokens,
+                max_tokens=max_tokens,  # Используем max_tokens вместо max_completion_tokens
             )
             
             choice = response.choices[0]
             finish_reason = choice.finish_reason
             
             if finish_reason == "length":
-                print(f"[LLM] ВНИМАНИЕ: Ответ обрезан из-за лимита токенов (max_completion_tokens={max_completion_tokens})")
+                print(f"[LLM] ВНИМАНИЕ: Ответ достиг лимита токенов (max_tokens={max_tokens})")
             
             content = choice.message.content or ""
-            print(f"[LLM] Получен ответ длиной {len(content)} символов")
+            print(f"[LLM] Получен ответ длиной {len(content)} символов, finish_reason={finish_reason}")
             return content
             
         except PermissionDeniedError as e:
@@ -170,35 +187,11 @@ class LLMClient:
                 except Exception as e:
                     print(f"[LLM] Ошибка закрытия HTTP клиента: {e}")
 
-    async def _shorten_response(self, original_text: str) -> str:
-        """Сокращает слишком длинный ответ"""
-        print(f"[LLM] Сокращаем длинный ответ ({len(original_text)} символов)")
-        
-        messages = [
-            {"role": "system", "content": "Ты Алина. Сократи свой ответ, оставив только самое важное и интересное. Максимум 5 пунктов для списков. Сохрани тёплый тон."},
-            {"role": "assistant", "content": original_text},
-            {"role": "user", "content": "Это слишком длинно. Сократи до самого интересного, оставь максимум 5 пунктов если это список."}
-        ]
-        
-        try:
-            shortened = await self._make_request(messages, temperature=1, max_completion_tokens=400)
-            print(f"[LLM] Ответ сокращён до {len(shortened)} символов")
-            return shortened
-        except Exception as e:
-            print(f"[LLM] Ошибка при сокращении: {e}")
-            # Механическое сокращение
-            lines = original_text.split('\n')
-            if len(lines) > 7:
-                result = '\n'.join(lines[:5])
-                result += "\n\nхочешь ещё? могу рассказать больше 💛"
-                return result
-            return original_text[:MAX_RESPONSE_LENGTH] + "..."
-
     async def chat(
         self,
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
-        max_completion_tokens: Optional[int] = None,
+        max_tokens: Optional[int] = None,
         *,
         verbosity: Optional[str] = None,
         safety: bool = False,
@@ -207,39 +200,31 @@ class LLMClient:
         
         temperature = float(temperature if temperature is not None else DEFAULT_TEMPERATURE)
         
-        # Адаптивный max_completion_tokens
+        # Определяем max_tokens на основе verbosity
         if verbosity == "short":
-            max_completion_tokens = SHORT_RESPONSE_LENGTH
+            max_tokens = 300  # Короткие ответы
         elif verbosity == "long":
-            max_completion_tokens = MAX_RESPONSE_LENGTH  
+            max_tokens = 1500  # Длинные ответы для списков
+        elif verbosity == "normal" or verbosity is None:
+            max_tokens = int(max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS)
         else:
-            max_completion_tokens = int(max_completion_tokens if max_completion_tokens is not None else DEFAULT_max_completion_tokens)
+            max_tokens = int(max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS)
 
         if safety:
             messages = [{"role": "system", "content": REFUSAL_STYLE}] + messages
 
-        # Добавляем указания про ограничение списков
+        # Добавляем указания про формат ответа
         last_user_msg = messages[-1].get("content", "").lower()
         if any(word in last_user_msg for word in ["факт", "пункт", "список", "причин", "способ"]):
             messages.append({
                 "role": "system", 
-                "content": "ВАЖНО: Даже если просят много пунктов, дай максимум 5 самых интересных. Каждый пункт с новой строки. В конце можешь спросить, хочет ли человек ещё."
-            })
-        else:
-            messages.append({
-                "role": "system", 
-                "content": "Отвечай кратко и по существу. Если ответ получается длинным, сосредоточься на главном."
+                "content": "Отвечай полно и интересно. Если нужен список - делай его с переносами строк, каждый пункт с новой строки."
             })
 
-        print(f"[LLM] Запрос к {self.model} с max_completion_tokens={max_completion_tokens}, температура={temperature}")
+        print(f"[LLM] Запрос к {self.model} с max_tokens={max_tokens}, температура={temperature}, verbosity={verbosity}")
         
         try:
-            txt = await self._make_request(messages, temperature, max_completion_tokens)
-            
-            # Проверяем длину ответа
-            if len(txt) > MAX_RESPONSE_LENGTH:
-                txt = await self._shorten_response(txt)
-            
+            txt = await self._make_request(messages, temperature, max_tokens)
             return _postprocess(txt)
             
         except Exception as e:

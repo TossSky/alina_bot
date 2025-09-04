@@ -10,9 +10,9 @@ class Settings(BaseModel):
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     free_messages: int = int(os.getenv("FREE_MESSAGES", "10"))
 
-    # OpenAI API (заменяем DeepSeek)
+    # OpenAI API (используем gpt-4o-mini для быстрых ответов)
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
-    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-5-mini-2025-08-07")
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     
     # Прокси настройки (аналогично ai-synthesizer)
     openai_use_proxy: bool = os.getenv("OPENAI_USE_PROXY", "false").lower() == "true"

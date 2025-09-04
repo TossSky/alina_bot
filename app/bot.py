@@ -450,7 +450,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("не похоже на время... напиши, например, 09:30")
         return
 
-
     if "зови меня" in text_in.lower():
         try:
             name = text_in.split("зови меня", 1)[1].strip(" :,.!?\n\t")
@@ -460,6 +459,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
         except Exception:
             pass
+    
     # Проверка доступа (подписка или бесплатные сообщения)
     has_access, u = await check_subscription(user_id)
     
@@ -485,19 +485,25 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"[BOT] Генерация ответа с verbosity={pref_verbosity}")
 
     try:
-        # Определяем max_completion_tokens для длинных ответов
-        max_completion_tokens = None
+        # Определяем max_tokens для разных типов ответов
+        max_tokens = None
         if pref_verbosity == "long":
-            max_completion_tokens = 1200  # Увеличенный лимит для списков
+            max_tokens = 1500  # Увеличенный лимит для списков
+        elif pref_verbosity == "short":
+            max_tokens = 300  # Короткие ответы
+        else:
+            max_tokens = 800  # Обычные ответы
         
         reply = await llm.chat(
             msgs,
             verbosity=pref_verbosity,
-            max_completion_tokens=max_completion_tokens,
+            max_tokens=max_tokens,
             safety=True
         )
+        
         reply = _sanitize_name_address(reply, update.effective_user, db_name)
         print(f"[BOT] Ответ сгенерирован: {len(reply)} символов")
+        
     except Exception as e:
         print(f"[BOT] LLM error: {e}", file=sys.stderr)
         traceback.print_exc()
