@@ -63,7 +63,10 @@ async def test_gpt_4o_mini():
                 {"role": "user", "content": "Привет! Как дела?"}
             ],
             max_tokens=100,
-            temperature=0.3
+            temperature=0.3,
+            presence_penalty = 0,
+            frequency_penalty = 0,
+            top_p=1
         )
         
         elapsed = time.time() - start
@@ -88,7 +91,10 @@ async def test_gpt_4o_mini():
                 {"role": "user", "content": "Расскажи мне что-нибудь интересное о космосе"}
             ],
             max_tokens=500,
-            temperature=0.3
+            temperature=0.3,
+            presence_penalty = 0,
+            frequency_penalty = 0,
+            top_p=1
         )
         
         elapsed = time.time() - start
@@ -113,7 +119,10 @@ async def test_gpt_4o_mini():
                 {"role": "user", "content": "Назови 10 интересных фактов о зебрах"}
             ],
             max_tokens=1500,
-            temperature=0.3
+            temperature=0.3,
+            presence_penalty = 0,
+            frequency_penalty = 0,
+            top_p=1
         )
         
         elapsed = time.time() - start
