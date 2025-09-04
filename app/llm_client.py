@@ -13,7 +13,7 @@ from .config import settings
 from .prompts import REFUSAL_STYLE
 
 # Базовые дефолты
-DEFAULT_temperature = 1.1
+DEFAULT_TEMPERATURE = 1.1
 DEFAULT_MAX_TOKENS = 2000  # Увеличиваем дефолт для полных ответов
 
 
