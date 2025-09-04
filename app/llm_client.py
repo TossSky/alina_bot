@@ -121,7 +121,6 @@ class LLMClient:
                 messages=messages,
                 temperature=temperature,
                 max_completion_tokens=max_completion_tokens,
-                frequency_penalty=0.3,
             )
             
             choice = response.choices[0]
