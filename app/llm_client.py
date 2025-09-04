@@ -13,7 +13,7 @@ from .config import settings
 from .prompts import REFUSAL_STYLE
 
 # Базовые дефолты
-DEFAULT_TEMPERATURE = 0.92
+DEFAULT_TEMPERATURE = 1
 DEFAULT_max_completion_tokens = 500
 MAX_RESPONSE_LENGTH = 800
 SHORT_RESPONSE_LENGTH = 300
@@ -183,7 +183,7 @@ class LLMClient:
         ]
         
         try:
-            shortened = await self._make_request(messages, temperature=0.7, max_completion_tokens=400)
+            shortened = await self._make_request(messages, temperature=1, max_completion_tokens=400)
             print(f"[LLM] Ответ сокращён до {len(shortened)} символов")
             return shortened
         except Exception as e:
