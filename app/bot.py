@@ -118,7 +118,7 @@ def is_rate_limited(user_id: int) -> bool:
 
 async def check_subscription(user_id: int) -> tuple[bool, dict]:
     """Проверяет подписку и возвращает (has_access, user_data)"""
-    u = db.get_user(user_id)
+    u = await asyncio.to_thread(db.get_user, user_id)
     active, _, _ = _sub_state(u)
     
     if active:
@@ -572,8 +572,8 @@ def main():
         print("Ошибка: TELEGRAM_BOT_TOKEN не задан в .env файле")
         return
     
-    if not settings.deepseek_api_key:
-        print("Ошибка: DEEPSEEK_API_KEY не задан в .env файле")
+    if not settings.openai_api_key:
+        print("Ошибка: OPENAI_API_KEY не задан в .env файле")
         return
     
     app = Application.builder().token(settings.telegram_bot_token).build()

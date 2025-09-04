@@ -10,9 +10,13 @@ class Settings(BaseModel):
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     free_messages: int = int(os.getenv("FREE_MESSAGES", "10"))
 
-    # DeepSeek (единственный провайдер)
-    deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
-    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+    # OpenAI API (заменяем DeepSeek)
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-5-mini-2025-08-07")
+    
+    # Прокси настройки (аналогично ai-synthesizer)
+    openai_use_proxy: bool = os.getenv("OPENAI_USE_PROXY", "false").lower() == "true"
+    openai_proxy_address: str = os.getenv("OPENAI_PROXY_ADDRESS", "")
 
     # Оплаты через Telegram Stars
     stars_day_amount: int = int(os.getenv("STARS_DAY_AMOUNT", "200"))

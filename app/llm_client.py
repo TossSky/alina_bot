@@ -1,7 +1,6 @@
 # app/llm_client.py
 from __future__ import annotations
 import asyncio
-import os
 import sys
 import traceback
 from typing import List, Dict, Optional
@@ -9,6 +8,8 @@ import random
 import re
 
 import httpx
+from openai import AsyncOpenAI, DefaultHttpxClient
+from openai import AuthenticationError, PermissionDeniedError, APITimeoutError
 
 from .config import settings
 from .prompts import REFUSAL_STYLE
@@ -86,21 +87,72 @@ def _postprocess(text: str) -> str:
     return t.strip()
 
 class LLMClient:
-    """Клиент для работы с DeepSeek API"""
+    """Клиент для работы с OpenAI API через прокси (аналогично ai-synthesizer)"""
 
     def __init__(self):
-        self.api_key = os.getenv("DEEPSEEK_API_KEY") or getattr(settings, "deepseek_api_key", None)
-        self.model = getattr(settings, "deepseek_model", "deepseek-chat")
-        self._client: Optional[httpx.AsyncClient] = None
+        self.api_key = settings.openai_api_key
+        self.model = settings.openai_model
+        self.use_proxy = settings.openai_use_proxy
+        self.proxy_address = settings.openai_proxy_address
+        self._client: Optional[AsyncOpenAI] = None
 
         if not self.api_key:
-            raise RuntimeError("DEEPSEEK_API_KEY не задан в .env файле")
+            raise RuntimeError("OPENAI_API_KEY не задан в .env файле")
 
-    async def _get_client(self) -> httpx.AsyncClient:
+    async def _get_client(self) -> AsyncOpenAI:
+        """Ленивое создание клиента с настройкой прокси"""
         if self._client is None:
-            # Уменьшаем timeout для избежания зависаний
-            self._client = httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0))
+            # Настройка HTTP клиента с прокси (аналогично ai-synthesizer)
+            http_client = None
+            if self.use_proxy and self.proxy_address:
+                http_client = DefaultHttpxClient(
+                    proxy=self.proxy_address,
+                    transport=httpx.HTTPTransport(local_address="0.0.0.0"),
+                    timeout=httpx.Timeout(20.0, connect=5.0)
+                )
+                print(f"[LLM] Используется прокси: {self.proxy_address}")
+            else:
+                http_client = DefaultHttpxClient(
+                    timeout=httpx.Timeout(20.0, connect=5.0)
+                )
+                print("[LLM] Прямое подключение к OpenAI API")
+
+            self._client = AsyncOpenAI(
+                api_key=self.api_key,
+                http_client=http_client,
+                max_retries=2
+            )
+        
         return self._client
+
+    def _openai_error_handler(func):
+        """Декоратор для обработки ошибок OpenAI (аналогично ai-synthesizer)"""
+        async def wrapper(self, *args, **kwargs):
+            try:
+                return await func(self, *args, **kwargs)
+            
+            except PermissionDeniedError as error:
+                if self.use_proxy:
+                    error_message = "ой, проблемы с прокси... проверь настройки"
+                else:
+                    error_message = "доступ ограничен... может, нужен прокси?"
+                print(f"[LLM] Permission denied: {error}", file=sys.stderr)
+                return error_message
+                
+            except AuthenticationError as error:
+                print(f"[LLM] Authentication error: {error}", file=sys.stderr)
+                return "ой, проблемы с ключом API... проверь настройки"
+                
+            except APITimeoutError as error:
+                print(f"[LLM] Timeout error: {error}", file=sys.stderr)
+                return "хм, что-то долго думаю... может, спросишь попроще?"
+                
+            except Exception as error:
+                print(f"[LLM] Unexpected error: {error}", file=sys.stderr)
+                traceback.print_exc()
+                return "ой, что-то связь барахлит... попробуй ещё раз?"
+        
+        return wrapper
 
     async def _shorten_response(self, original_text: str) -> str:
         """Сокращает слишком длинный ответ через дополнительный запрос"""
@@ -127,35 +179,28 @@ class LLMClient:
                 return result
             return original_text[:MAX_RESPONSE_LENGTH] + "..."
 
+    @_openai_error_handler
     async def _make_request(self, messages: List[Dict[str, str]], temperature: float, max_tokens: int) -> str:
-        """Внутренний метод для выполнения запроса к API"""
-        url = "https://api.deepseek.com/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "top_p": 0.95,
-            "frequency_penalty": 0.3,
-        }
-
+        """Внутренний метод для выполнения запроса к OpenAI API"""
         client = await self._get_client()
-        resp = await client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
+        
+        response = await client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=0.95,
+            frequency_penalty=0.3,
+        )
         
         # Проверяем finish_reason
-        choice = data.get("choices", [{}])[0]
-        finish_reason = choice.get("finish_reason")
+        choice = response.choices[0]
+        finish_reason = choice.finish_reason
         
         if finish_reason == "length":
             print(f"[LLM] ВНИМАНИЕ: Ответ обрезан из-за лимита токенов (max_tokens={max_tokens})")
         
-        return choice.get("message", {}).get("content", "")
+        return choice.message.content or ""
 
     async def chat(
         self,
@@ -166,7 +211,7 @@ class LLMClient:
         verbosity: Optional[str] = None,
         safety: bool = False,
     ) -> str:
-        """Отправляет запрос к DeepSeek API с умным ограничением длины"""
+        """Отправляет запрос к OpenAI API с умным ограничением длины"""
         
         temperature = float(temperature if temperature is not None else DEFAULT_TEMPERATURE)
         
@@ -197,7 +242,7 @@ class LLMClient:
             })
 
         # Отладочный вывод
-        print(f"[LLM] Запрос с max_tokens={max_tokens}, температура={temperature}")
+        print(f"[LLM] Запрос к {self.model} с max_tokens={max_tokens}, температура={temperature}")
         
         try:
             txt = await self._make_request(messages, temperature, max_tokens)
@@ -211,42 +256,13 @@ class LLMClient:
             
             return _postprocess(txt)
             
-        except httpx.HTTPStatusError as e:
-            print(f"[LLM] HTTP ошибка {e.response.status_code}: {e.response.text}", file=sys.stderr)
-            
-            if e.response.status_code == 401:
-                return "ой, проблемы с ключом API... проверь настройки"
-            elif e.response.status_code == 429:
-                return "секунду, слишком много сообщений... попробуй чуть позже?"
-            elif e.response.status_code == 400:
-                error_detail = e.response.text
-                print(f"[LLM] Детали ошибки 400: {error_detail}", file=sys.stderr)
-                return "хм, что-то сложновато... давай попроще?"
-            else:
-                return "что-то с подключением... попробуй ещё раз?"
-                
-        except httpx.TimeoutException as e:
-            print(f"[LLM] Timeout ошибка: {e}", file=sys.stderr)
-            # При таймауте пробуем более короткий запрос
-            if verbosity == "long" or max_tokens > 500:
-                print("[LLM] Повторяем с меньшим лимитом токенов...")
-                return await self.chat(
-                    messages, 
-                    temperature=temperature,
-                    max_tokens=DEFAULT_MAX_TOKENS,
-                    verbosity="normal",
-                    safety=safety
-                )
-            return "хм, что-то долго думаю... может, спросишь попроще?"
-            
         except Exception as e:
-            # Полный traceback для отладки
-            print(f"[LLM] Неожиданная ошибка: {e}", file=sys.stderr)
-            traceback.print_exc()
-            return "ой, что-то связь барахлит... попробуй ещё раз?"
+            # Обработка ошибок уже происходит в декораторе
+            print(f"[LLM] Финальная ошибка: {e}", file=sys.stderr)
+            return "что-то пошло не так... попробуй ещё раз?"
 
     async def aclose(self):
-        """Закрывает HTTP клиент"""
+        """Закрывает OpenAI клиент"""
         if self._client is not None:
-            await self._client.aclose()
+            await self._client.close()
             self._client = None
