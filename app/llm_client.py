@@ -121,7 +121,6 @@ class LLMClient:
                 messages=messages,
                 temperature=temperature,
                 max_completion_tokens=max_completion_tokens,
-                top_p=0.95,
                 frequency_penalty=0.3,
             )
             
