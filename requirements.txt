@@ -1,5 +1,8 @@
-python-telegram-bot[job-queue]==21.4
+# Основные зависимости
+python-telegram-bot==21.4
 openai>=1.68.0
-pydantic>=2.7
-SQLAlchemy>=2.0
-python-dotenv>=1.0
+python-dotenv>=1.0.0
+httpx>=0.24.0
+
+# Дополнительные для продакшена (опционально)
+aiofiles>=23.0.0  # Для асинхронной работы с файлами
