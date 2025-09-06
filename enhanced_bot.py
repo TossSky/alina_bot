@@ -14,7 +14,8 @@ from typing import Optional, Dict
 import random
 import asyncio.subprocess
 
-from telegram import Update, ChatAction
+from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     CommandHandler,
