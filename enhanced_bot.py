@@ -49,8 +49,8 @@ db = DialogueDB()
 # Импортируем нужный LLM клиент
 # Используем упрощенную версию или базовую
 try:
-    from llm import AlinaLLM  # Базовая версия
-    llm = AlinaLLM(
+    from advanced_llm import AdvancedAlinaLLM  # Базовая версия
+    llm = AdvancedAlinaLLM(
         api_key=config.openai_api_key,
         model=config.openai_model,
         use_proxy=config.use_proxy,
@@ -60,7 +60,9 @@ except ImportError:
     from advanced_llm import AdvancedAlinaLLM
     llm = AdvancedAlinaLLM(
         api_key=config.openai_api_key,
-        model=config.openai_model
+        model=config.openai_model,
+        use_proxy=config.use_proxy,
+        proxy_url=config.proxy_url
     )
 
 # Детекторы спама для каждого пользователя

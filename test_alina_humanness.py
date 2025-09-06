@@ -31,8 +31,8 @@ async def test_responses():
     # Импортируем нужные модули
     try:
         # Пробуем импортировать исправленную версию
-        from fixed_enhanced_personality import ALINA_CORE, generate_contextual_prompt, get_generation_params
-        from fixed_advanced_llm import HumanLikeAlinaLLM
+        from enhanced_personality import ALINA_CORE, generate_contextual_prompt, get_generation_params
+        from advanced_llm import HumanLikeAlinaLLM
         print("✅ Используем исправленные модули")
     except ImportError:
         try:
@@ -220,8 +220,8 @@ async def quick_chat():
     
     # Импортируем модули
     try:
-        from fixed_enhanced_personality import ALINA_CORE, generate_contextual_prompt
-        from fixed_advanced_llm import HumanLikeAlinaLLM
+        from enhanced_personality import ALINA_CORE, generate_contextual_prompt
+        from advanced_llm import HumanLikeAlinaLLM
     except:
         from personality import ALINA_PERSONALITY as ALINA_CORE
         from llm import AlinaLLM as HumanLikeAlinaLLM
