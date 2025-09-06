@@ -17,7 +17,7 @@ from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionChunk
 from pydantic import BaseModel, Field
 import logging
-
+import os 
 logger = logging.getLogger(__name__)
 
 
@@ -339,8 +339,36 @@ class AdvancedAlinaLLM:
 
     
     async def _create_client(self) -> AsyncOpenAI:
-        """Создаёт клиент OpenAI."""
-        return AsyncOpenAI(api_key=self.api_key)
+        """
+        Создаёт клиента OpenAI/совместимого API.
+        Поддерживает:
+        - Кастомный base_url (OPENAI_BASE_URL) — OpenRouter/Together/Ollama и т.п.
+        - Прокси (PROXY_URL), если нужен.
+        По умолчанию пойдёт в обычный OpenAI (может давать 403 в неподдерживаемом регионе).
+        """
+        base_url = os.getenv("OPENAI_BASE_URL", "").strip()
+        api_key = self.api_key or os.getenv("OPENAI_API_KEY", "")
+        proxy_url = os.getenv("PROXY_URL", "").strip()
+
+        http_client = None
+        if proxy_url:
+            http_client = httpx.AsyncClient(
+                proxy=proxy_url,
+                timeout=httpx.Timeout(30.0, connect=10.0)
+            )
+
+        if base_url:
+            return AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url.rstrip("/"),
+                http_client=http_client,
+            )
+
+        return AsyncOpenAI(
+            api_key=api_key,
+            http_client=http_client,
+        )
+
     
     async def analyze_intent(self, message: str) -> UserIntent:
         """Анализирует намерение пользователя через structured output."""
