@@ -64,41 +64,45 @@ class DialogueDB:
         """Получает или создаёт пользователя."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            
-            # Проверяем существование
-            cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-            user = cursor.fetchone()
-            
-            if not user:
-                # Создаём нового пользователя
-                cursor.execute("""
-                    INSERT INTO users (user_id, username, first_name) 
-                    VALUES (?, ?, ?)
-                """, (user_id, username, first_name))
+
+            # Явно перечисляем столбцы, чтобы потом легко собрать dict
+            cursor.execute("""
+                SELECT user_id, username, first_name, created_at, last_active, total_messages, user_data
+                FROM users WHERE user_id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+
+            if row is None:
+                # Создаем нового
+                cursor.execute(
+                    "INSERT INTO users (user_id, username, first_name) VALUES (?, ?, ?)",
+                    (user_id, username, first_name)
+                )
                 conn.commit()
-                
                 return {
                     "user_id": user_id,
                     "username": username,
                     "first_name": first_name,
-                    "created_at": datetime.now(),
+                    "created_at": datetime.now().isoformat(),
+                    "last_active": datetime.now().isoformat(),
                     "total_messages": 0,
                     "user_data": {}
                 }
-            else:
-                # Обновляем last_active
-                cursor.execute("""
-                    UPDATE users 
-                    SET last_active = CURRENT_TIMESTAMP 
-                    WHERE user_id = ?
-                """, (user_id,))
-                conn.commit()
-                
-                # Возвращаем существующего
-                columns = [desc[0] for desc in cursor.description]
-                user_dict = dict(zip(columns, user))
-                user_dict["user_data"] = json.loads(user_dict.get("user_data", "{}"))
-                return user_dict
+
+            # Сохраняем dict ДО UPDATE (иначе description обнулится)
+            columns = ["user_id", "username", "first_name", "created_at", "last_active", "total_messages", "user_data"]
+            user_dict = dict(zip(columns, row))
+            try:
+                user_dict["user_data"] = json.loads(user_dict.get("user_data") or "{}")
+            except Exception:
+                user_dict["user_data"] = {}
+
+            # Обновляем last_active уже после того, как собрали словарь
+            cursor.execute("UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
+            conn.commit()
+
+            return user_dict
+
     
     def add_message(self, user_id: int, role: str, content: str):
         """Добавляет сообщение в историю."""
