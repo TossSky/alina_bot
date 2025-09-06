@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  mcp-memory:
+    image: modelcontextprotocol/memory-server:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mcp_data/memory:/data
+    environment:
+      - STORAGE_PATH=/data
+      - MAX_MEMORIES=10000
+      - ENABLE_SEARCH=true
+
+  mcp-filesystem:
+    image: modelcontextprotocol/filesystem-server:latest
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./user_data:/user_data:ro
+      - ./chat_history:/chat_history:rw
+    environment:
+      - ALLOWED_PATHS=/user_data,/chat_history
+      - READ_ONLY=false
+
+  mcp-time:
+    image: modelcontextprotocol/time-server:latest
+    ports:
+      - "5003:5003"
+    environment:
+      - DEFAULT_TIMEZONE=Europe/Moscow
+
+  mcp-sentiment:
+    build: ./sentiment-server
+    ports:
+      - "5004:5004"
+    environment:
+      - MODEL=sentiment-analysis-russian
+      - ENABLE_EMOTIONS=true

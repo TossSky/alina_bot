@@ -33,6 +33,9 @@ class Config:
         
         # Валидация
         self._validate()
+
+        self.mcp_enabled = os.getenv("MCP_ENABLED", "true").lower() == "true"
+        self.mcp_config_path = os.getenv("MCP_CONFIG_PATH", "./mcp_config.json")
     
     def _validate(self):
         """Проверяет корректность конфигурации."""
