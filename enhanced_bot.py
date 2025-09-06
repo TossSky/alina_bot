@@ -364,9 +364,6 @@ def main():
         MessageHandler(filters.VOICE, handle_voice)
     )
     application.add_handler(
-        MessageHandler(filters.PHOTO | filters.STICKER, handle_non_text)
-    )
-    application.add_handler(
         MessageHandler(~filters.TEXT & ~filters.COMMAND, handle_non_text)
     )
     
