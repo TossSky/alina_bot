@@ -399,7 +399,7 @@ class ResponseStrategies:
                 "style": "careful",
                 "length": "medium",
                 "temperature": 0.75,
-                "use_emoji": True,
+                "use_emoji": False,
                 "show_vulnerability": True
             }
         
@@ -410,7 +410,7 @@ class ResponseStrategies:
                 "length": "short",
                 "temperature": 0.7,
                 "personal_details": False,
-                "use_emoji": "moderate"
+                "use_emoji": "low"
             },
             "acquaintance": {
                 "style": "friendly",
@@ -509,6 +509,15 @@ def generate_contextual_prompt(
             memory_str += f"- {key}: {value}\n"
         prompt_parts.append(memory_str)
     
+    prompt_parts.append("""
+        ПРАВИЛА ЭМОДЗИ:
+        - Используй эмодзи только если они УСИЛИВАЮТ смысл/тон фразы.
+        - Не чаще 1 эмодзи на сообщение (0 для деликатных/негативных/деловых тем).
+        - Не ставь эмодзи в каждом сообщении подряд; делай паузы.
+        - Не ставь эмодзи после каждого предложения и не замещай ими слова.
+        """)
+
+
     return "\n".join(prompt_parts)
 
 
