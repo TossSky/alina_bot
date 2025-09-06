@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 config = Config()
 db = DialogueDB()
+mcp_cfg = config.load_mcp_config()
 llm = AdvancedAlinaLLM(
     api_key=config.openai_api_key,
     model=config.openai_model,
