@@ -1,54 +1,23 @@
 {
   "servers": {
     "memory": {
-      "url": "http://localhost:5000",
       "enabled": true,
-      "capabilities": [
-        "store_memory",
-        "retrieve_memory",
-        "search_memories",
-        "delete_memory"
-      ]
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory", "--storage", "./mcp_data/memory"]
     },
     "filesystem": {
-      "url": "http://localhost:5001",
       "enabled": true,
-      "allowed_paths": [
-        "./user_data",
-        "./chat_history"
-      ],
-      "capabilities": [
-        "read_file",
-        "write_file",
-        "list_directory"
-      ]
-    },
-    "weather": {
-      "url": "http://localhost:5002",
-      "enabled": false,
-      "api_key": "YOUR_OPENWEATHER_API_KEY",
-      "capabilities": [
-        "get_current_weather",
-        "get_forecast"
-      ]
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./user_data", "./chat_history"]
     },
     "time": {
-      "url": "http://localhost:5003",
       "enabled": true,
-      "capabilities": [
-        "get_current_time",
-        "convert_timezone",
-        "schedule_reminder"
-      ]
+      "command": "npx",
+      "args": ["-y", "@dandeliongold/mcp-time"]
     },
     "sentiment": {
-      "url": "http://localhost:5004",
       "enabled": true,
-      "capabilities": [
-        "analyze_sentiment",
-        "detect_emotions",
-        "measure_intensity"
-      ]
+      "url": "http://localhost:5004"
     }
   }
 }

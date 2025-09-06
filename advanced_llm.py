@@ -246,52 +246,97 @@ class MCPConnector:
 
 class AdvancedAlinaLLM:
     """Продвинутый клиент с поддержкой streaming, functions и MCP."""
-    
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gpt-4o-mini",
+        mcp_config: Optional[Dict] = None,
+        sentiment_url: Optional[str] = None,
+    ):
         self.api_key = api_key
         self.model = model
         self.mcp = MCPConnector()
         self.functions = AlenaFunctions()
-        
-        # Параметры для разных режимов
+
+        # MCP конфиг и процессы stdio-серверов
+        self.mcp_config = mcp_config or {"servers": {}}
+        self.sentiment_url = sentiment_url
+        self._mcp_procs: Dict[str, asyncio.subprocess.Process] = {}
+
+        # Параметры режимов (как было)
         self.modes = {
-            "chat": {
-                "temperature": 0.8,
-                "top_p": 1.0,
-                "frequency_penalty": 0.4,
-                "presence_penalty": 0.4
-            },
-            "creative": {
-                "temperature": 0.95,
-                "top_p": 0.95,
-                "frequency_penalty": 0.5,
-                "presence_penalty": 0.5
-            },
-            "analytical": {
-                "temperature": 0.6,
-                "top_p": 0.9,
-                "frequency_penalty": 0.2,
-                "presence_penalty": 0.2
-            },
-            "empathetic": {
-                "temperature": 0.85,
-                "top_p": 1.0,
-                "frequency_penalty": 0.3,
-                "presence_penalty": 0.5
-            }
+            "chat": {"temperature": 0.8, "top_p": 1.0, "frequency_penalty": 0.4, "presence_penalty": 0.4},
+            "creative": {"temperature": 0.95, "top_p": 0.95, "frequency_penalty": 0.5, "presence_penalty": 0.5},
+            "analytical": {"temperature": 0.6, "top_p": 0.9, "frequency_penalty": 0.2, "presence_penalty": 0.2},
+            "empathetic": {"temperature": 0.85, "top_p": 1.0, "frequency_penalty": 0.3, "presence_penalty": 0.5},
         }
     
     async def initialize_mcp_servers(self):
-        """Инициализирует подключения к MCP серверам."""
-        servers = [
-            ("memory", "mcp://localhost:5000/memory"),
-            ("filesystem", "mcp://localhost:5001/filesystem"),
-            ("weather", "mcp://localhost:5002/weather"),
-            ("sentiment", "mcp://localhost:5003/sentiment")
-        ]
-        
-        for name, url in servers:
-            await self.mcp.connect_server(name, url)
+        """
+        Запускает STDIO MCP-сервера из mcp_config (command + args).
+        HTTP-серверы (sentiment) не спауним — просто используем их URL.
+        """
+        servers = self.mcp_config.get("servers", {})
+        tasks = []
+
+        for name, cfg in servers.items():
+            if not cfg.get("enabled", False):
+                continue
+
+            # HTTP endpoint (например, sentiment)
+            if cfg.get("url"):
+                if name == "sentiment" and not self.sentiment_url:
+                    self.sentiment_url = cfg["url"]
+                # HTTP-сервера не спауним
+                continue
+
+            # STDIO сервер (command + args)
+            cmd = cfg.get("command")
+            args = cfg.get("args", [])
+            if not cmd:
+                logger.warning(f"[MCP] Server '{name}' enabled but no command provided")
+                continue
+
+            # Уже запущен?
+            proc = self._mcp_procs.get(name)
+            if proc and (proc.returncode is None):
+                continue
+
+            tasks.append(self._spawn_stdio(name, cmd, args))
+
+        if tasks:
+            await asyncio.gather(*tasks)
+
+        # (Опционально) пометим в абстракции, что «подключены»
+        for name in servers.keys():
+            self.mcp.servers[name] = {"status": "connected"}
+
+    async def _spawn_stdio(self, name: str, cmd: str, args: List[str]):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                cmd, *args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            self._mcp_procs[name] = proc
+            logger.info(f"[MCP] Spawned stdio server '{name}': {cmd} {' '.join(args)} (pid={proc.pid})")
+        except Exception as e:
+            logger.error(f"[MCP] Failed to spawn '{name}': {e}")
+            
+    async def _analyze_sentiment_http(self, text: str) -> Optional[Dict[str, Any]]:
+        if not self.sentiment_url:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.post(f"{self.sentiment_url}/analyze", json={"text": text})
+                r.raise_for_status()
+                return r.json()
+        except Exception as e:
+            logger.warning(f"[MCP] Sentiment HTTP failed: {e}")
+            return None
+
     
     async def _create_client(self) -> AsyncOpenAI:
         """Создаёт клиент OpenAI."""
@@ -473,8 +518,8 @@ class AdvancedAlinaLLM:
                 mcp_context.append(f"[Погода сейчас: {weather}]")
         
         # Анализируем настроение
-        sentiment = await self.mcp.call_mcp_tool("sentiment", "analyze_sentiment", {"text": last_message})
-        if sentiment and sentiment["sentiment"] != "neutral":
+        sentiment = await self._analyze_sentiment_http(last_message)
+        if sentiment and sentiment.get("sentiment") and sentiment["sentiment"] != "neutral":
             mcp_context.append(f"[Настроение пользователя: {sentiment['sentiment']}]")
         
         # Добавляем MCP контекст в системное сообщение

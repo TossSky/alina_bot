@@ -4,6 +4,7 @@
 """
 
 import os
+import json   
 from dotenv import load_dotenv
 
 # Загружаем переменные окружения
@@ -31,11 +32,24 @@ class Config:
         # Отладка
         self.debug = os.getenv("DEBUG", "false").lower() == "true"
         
+        self.mcp_enabled = os.getenv("MCP_ENABLED", "true").lower() == "true"
+        self.mcp_config_path = os.getenv("MCP_CONFIG_PATH", "./mcp_config.json")
+        self.mcp_sentiment_url = os.getenv("MCP_SENTIMENT_URL", "http://localhost:5004")
+
         # Валидация
         self._validate()
 
-        self.mcp_enabled = os.getenv("MCP_ENABLED", "true").lower() == "true"
-        self.mcp_config_path = os.getenv("MCP_CONFIG_PATH", "./mcp_config.json")
+    def load_mcp_config(self) -> dict:
+        """Безопасно загружает MCP-конфиг."""
+        try:
+            with open(self.mcp_config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return {"servers": {}}
+        except Exception as e:
+            if self.debug:
+                print(f"[MCP] Failed to load config: {e}")
+            return {"servers": {}}
     
     def _validate(self):
         """Проверяет корректность конфигурации."""

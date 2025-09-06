@@ -12,6 +12,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 import random
+import asyncio.subprocess
 
 from telegram import Update, ChatAction
 from telegram.ext import (
@@ -49,7 +50,9 @@ config = Config()
 db = DialogueDB()
 llm = AdvancedAlinaLLM(
     api_key=config.openai_api_key,
-    model=config.openai_model
+    model=config.openai_model,
+    mcp_config=mcp_cfg,
+    sentiment_url=config.mcp_sentiment_url
 )
 
 # Детекторы паттернов для каждого пользователя
@@ -302,7 +305,8 @@ async def handle_start_advanced(update: Update, context: ContextTypes.DEFAULT_TY
         username=user.username,
         first_name=user.first_name
     )
-    
+    asyncio.get_event_loop().run_until_complete(llm.initialize_mcp_servers())
+
     # Проверяем, новый ли это пользователь
     stats = db.get_conversation_stats(user_id)
     is_returning = stats["total_messages"] > 0
