@@ -1,14 +1,15 @@
-# bot.py - Главный файл телеграм бота Алины
+# bot.py - Главный файл бота Алины
 """
-Минималистичный, но мощный бот с продуманной личностью.
-Фокус на качестве диалога, а не на функциях.
+Оптимизированный бот с фокусом на человечности.
+Простота + качество = естественность.
 """
 
 import asyncio
 import logging
 import random
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
+from collections import defaultdict
 
 from telegram import Update
 from telegram.ext import (
@@ -23,16 +24,22 @@ from telegram.constants import ChatAction
 from config import Config
 from database import DialogueDB
 from llm import AlinaLLM
-from personality import ALINA_PERSONALITY, enrich_prompt
+from personality import (
+    ALINA_PERSONALITY,
+    enrich_prompt,
+    get_spam_response,
+    analyze_negativity,
+    NEGATIVE_RESPONSES
+)
 
-# Настройка логирования
+# Логирование
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Инициализация компонентов
+# Инициализация
 config = Config()
 db = DialogueDB()
 llm = AlinaLLM(
@@ -42,79 +49,114 @@ llm = AlinaLLM(
     proxy_url=config.proxy_url
 )
 
-# Простой rate limiter
-last_message_time = {}
+# Трекеры для пользователей
+user_spam_tracker = defaultdict(list)  # История сообщений для спам-детекции
+user_negative_counter = defaultdict(int)  # Счетчик негатива
+user_last_message_time = {}  # Антифлуд
 
 
-def get_time_of_day() -> str:
-    """Определяет время суток для контекста."""
+def get_context_info(user_id: int) -> Dict:
+    """Собирает контекст для генерации."""
     hour = datetime.now().hour
-    if 5 <= hour < 12:
-        return "morning"
-    elif 12 <= hour < 18:
-        return "afternoon"
-    elif 18 <= hour < 23:
-        return "evening"
-    else:
-        return "night"
+    
+    # Определяем настроение по времени и рандому
+    mood = None
+    if random.random() < 0.2:  # 20% шанс на особое настроение
+        moods = ["tired", "happy", "annoyed", "sad"]
+        mood = random.choice(moods)
+    
+    # Негатив от пользователя
+    negative_count = user_negative_counter.get(user_id, 0)
+    
+    return {
+        "hour": hour,
+        "mood": mood,
+        "negative_count": negative_count
+    }
 
 
-def get_random_mood() -> Optional[str]:
-    """Иногда возвращает случайное настроение."""
-    if random.random() < 0.3:  # 30% шанс на особое настроение
-        moods = ["tired", "happy", "melancholic", "playful", "focused", "distracted"]
-        return random.choice(moods)
-    return None
+def check_spam(user_id: int, message: str) -> int:
+    """Проверяет спам от пользователя."""
+    history = user_spam_tracker[user_id]
+    
+    # Нормализуем сообщение
+    normalized = message.lower().strip()
+    
+    # Считаем повторы
+    spam_count = history.count(normalized)
+    
+    # Обновляем историю (храним последние 5)
+    history.append(normalized)
+    if len(history) > 5:
+        history.pop(0)
+    
+    return spam_count
 
 
 async def simulate_typing(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str):
-    """Имитация набора текста для естественности."""
-    # Рассчитываем время "набора" на основе длины текста
+    """Имитация набора текста."""
+    # Время набора зависит от длины
     char_count = len(text)
     
     if char_count < 30:
-        typing_time = random.uniform(0.5, 1.5)
+        typing_time = random.uniform(0.5, 1.2)
     elif char_count < 100:
-        typing_time = random.uniform(1.5, 3.0)
+        typing_time = random.uniform(1.0, 2.5)
     else:
-        typing_time = random.uniform(2.5, 4.0)
+        typing_time = random.uniform(2.0, 3.5)
     
-    # Отправляем "печатает..."
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
     await asyncio.sleep(typing_time)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start."""
+    """Команда /start."""
     user = update.effective_user
     user_id = user.id
     
-    # Создаём/получаем пользователя в БД
-    db.get_or_create_user(
+    # Создаем/получаем пользователя
+    user_data = db.get_or_create_user(
         user_id=user_id,
         username=user.username,
         first_name=user.first_name
     )
     
-    # Приветственные сообщения (рандомные для разнообразия)
-    greetings = [
-        "привет! я алина) рада познакомиться 😊\n\nможешь писать мне о чём угодно - поболтаем, посмеёмся, или просто послушаю, если нужно",
-        "оо привет! я алина 👋\n\nтут можно просто поболтать обо всём - как день прошёл, что волнует, или просто так)",
-        "хей! алина тут)\n\nпиши что хочешь - поговорим о жизни, сериалах, или о чём душа пожелает 🌿",
-    ]
+    # Проверяем, новый ли пользователь
+    stats = db.get_conversation_stats(user_id)
+    is_returning = stats["total_messages"] > 0
+    
+    if is_returning:
+        # Возвращающийся
+        greetings = [
+            "о, привет! давно не виделись)",
+            "ты вернулся! как дела?",
+            "привет-привет, соскучилась честно говоря"
+        ]
+    else:
+        # Новый
+        greetings = [
+            "привет! я алина) рада познакомиться",
+            "оо новенький! я алина, а ты?",
+            "хей, алина тут. давай знакомиться?"
+        ]
     
     greeting = random.choice(greetings)
+    
+    # Добавляем контекст времени
+    hour = datetime.now().hour
+    if hour >= 23 or hour < 5:
+        greeting += "\n\nкстати, чего не спишь?"
+    
     await simulate_typing(context, update.effective_chat.id, greeting)
     await update.message.reply_text(greeting)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /help."""
+    """Команда /help."""
     help_text = (
-        "просто пиши мне как подруге 💛\n\n"
-        "я не бот-помощник, я просто алина. можем поболтать о чём угодно - "
-        "о твоём дне, о сериалах, о жизни... или просто подурачиться)\n\n"
-        "а команды тут и не нужны, честно говоря"
+        "да просто пиши что хочешь\n\n"
+        "я не бот-помощник, я алина. "
+        "можем поболтать, посмеяться, или просто помолчать вместе)"
     )
     
     await simulate_typing(context, update.effective_chat.id, help_text)
@@ -122,42 +164,64 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Основной обработчик текстовых сообщений."""
+    """Основной обработчик сообщений."""
     user = update.effective_user
     user_id = user.id
     user_message = update.message.text
     
-    # Rate limiting
+    # Антифлуд
     current_time = asyncio.get_event_loop().time()
-    if user_id in last_message_time:
-        if current_time - last_message_time[user_id] < 1.0:  # Минимум 1 секунда между сообщениями
+    if user_id in user_last_message_time:
+        if current_time - user_last_message_time[user_id] < 0.5:
+            return  # Игнорируем слишком частые сообщения
+    user_last_message_time[user_id] = current_time
+    
+    logger.info(f"User {user_id}: {user_message[:50]}...")
+    
+    # Проверяем на негатив
+    negativity = analyze_negativity(user_message)
+    if negativity:
+        user_negative_counter[user_id] += 1
+        
+        # Если слишком много негатива - резкий ответ
+        if user_negative_counter[user_id] > 3:
+            responses = ["все, достал. пока", "блокирую", "иди в баню"]
+            response = random.choice(responses)
+            await update.message.reply_text(response)
             return
-    last_message_time[user_id] = current_time
+        
+        # Обычная реакция на негатив
+        response = random.choice(NEGATIVE_RESPONSES.get(negativity, ["..."])) 
+        await update.message.reply_text(response)
+        return
     
-    # Логируем входящее сообщение
-    logger.info(f"User {user_id} ({user.first_name}): {user_message[:50]}...")
+    # Проверяем спам
+    spam_count = check_spam(user_id, user_message)
+    if spam_count > 0:
+        response = get_spam_response(spam_count)
+        await update.message.reply_text(response)
+        
+        # Если слишком много спама - прекращаем
+        if spam_count > 3:
+            return
     
-    # Сохраняем сообщение пользователя
+    # Сохраняем сообщение
     db.add_message(user_id, "user", user_message)
     
-    # Получаем историю диалога
+    # Получаем историю
     history = db.get_dialogue_history(user_id, limit=20)
     
     # Анализируем контекст
     stats = db.get_conversation_stats(user_id)
-    context_info = llm.analyze_context(user_message, stats["conversation_length"])
+    llm_context = llm.analyze_context(user_message, stats["conversation_length"])
     
-    # Формируем промпт с учётом времени и настроения
-    time_of_day = get_time_of_day()
-    mood = get_random_mood()
+    # Контекст для промпта
+    prompt_context = get_context_info(user_id)
     
-    enriched_prompt = enrich_prompt(
-        ALINA_PERSONALITY,
-        time_of_day=time_of_day,
-        mood=mood
-    )
+    # Обогащаем промпт
+    enriched_prompt = enrich_prompt(ALINA_PERSONALITY, prompt_context)
     
-    # Формируем сообщения для API
+    # Формируем сообщения
     messages = [
         {"role": "system", "content": enriched_prompt}
     ]
@@ -166,73 +230,85 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for msg in history:
         messages.append(msg)
     
-    # Добавляем текущее сообщение
+    # Текущее сообщение
     messages.append({"role": "user", "content": user_message})
     
     try:
-        # Имитируем набор текста
+        # Начинаем печатать
         await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id, 
+            chat_id=update.effective_chat.id,
             action=ChatAction.TYPING
         )
         
         # Генерируем ответ
-        response = await llm.generate_response(messages, context_info)
+        response = await llm.generate_response(messages, llm_context)
         
-        # Дополнительная имитация набора на основе длины ответа
+        # Добавляем спонтанные детали (редко)
+        if random.random() < 0.1:  # 10% шанс
+            details = [
+                "\n\nой кот прыгнул на колени",
+                "\n\nчайник вскипел, секунду",
+                "\n\nбублик опять спит на клаве))",
+                "\n\nдождь пошел кстати"
+            ]
+            response += random.choice(details)
+        
+        # Имитируем набор
         await simulate_typing(context, update.effective_chat.id, response)
         
-        # Отправляем ответ
+        # Отправляем
         await update.message.reply_text(response)
         
-        # Сохраняем ответ в БД
+        # Сохраняем ответ
         db.add_message(user_id, "assistant", response)
         
-        logger.info(f"Alina to {user_id}: {response[:50]}...")
+        logger.info(f"Alina: {response[:50]}...")
+        
+        # Сбрасываем счетчик негатива если общение нормальное
+        if user_negative_counter[user_id] > 0:
+            user_negative_counter[user_id] -= 1
         
     except Exception as e:
-        logger.error(f"Error handling message: {e}")
+        logger.error(f"Error: {e}")
         
-        # Человечные сообщения об ошибке
-        error_messages = [
-            "ой, что-то я запуталась... можешь ещё раз?",
-            "блин, не поняла( давай попробуем ещё раз",
-            "секунду, кот на клавиатуру прыгнул... что ты написал?",
-            "сорри, отвлеклась... можешь повторить?"
+        # Фоллбеки
+        fallbacks = [
+            "что-то я запуталась... еще раз можно?",
+            "блин, не поняла. давай по-другому",
+            "ой, кот отвлек. что ты сказал?"
         ]
         
-        error_response = random.choice(error_messages)
-        await update.message.reply_text(error_response)
+        await update.message.reply_text(random.choice(fallbacks))
 
 
 async def handle_non_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик не-текстовых сообщений (фото, стикеры и т.д.)."""
+    """Обработчик медиа."""
     responses = {
         "photo": [
-            "оо классное фото!",
-            "ничего себе! круто выглядит",
-            "вау, красиво 😍",
-            "хорошее фото)"
+            "о, классное фото",
+            "ничего себе!",
+            "круто выглядит)",
+            "вау"
         ],
         "sticker": [
-            "ахаха классный стикер",
+            "ахах хороший стикер",
             "😄",
-            "хех, забавно)",
-            "люблю этот стикер!"
+            "забавно)",
+            "люблю этот"
         ],
         "voice": [
-            "сорри, сейчас не могу послушать голосовые( давай текстом?",
-            "ой, я на работе, не могу включить звук... можешь написать?",
-            "голосовые не могу сейчас.. напиши лучше)"
+            "сорри, не могу послушать голосовые сейчас",
+            "напиши текстом плиз",
+            "голосовые не люблю если честно"
         ],
         "default": [
-            "эмм, не поняла что это)",
-            "что-то не могу открыть(",
-            "хм, у меня не показывает.. что там?"
+            "что это?",
+            "не открывается у меня(",
+            "хм, что там?"
         ]
     }
     
-    # Определяем тип сообщения
+    # Определяем тип
     if update.message.photo:
         response_list = responses["photo"]
     elif update.message.sticker:
@@ -248,8 +324,8 @@ async def handle_non_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    """Точка входа в приложение."""
-    # Проверяем конфигурацию
+    """Запуск бота."""
+    # Проверяем конфиг
     if not config.telegram_bot_token:
         logger.error("TELEGRAM_BOT_TOKEN не установлен!")
         return
@@ -258,21 +334,21 @@ def main():
         logger.error("OPENAI_API_KEY не установлен!")
         return
     
-    # Создаём приложение
+    # Создаем приложение
     application = Application.builder().token(config.telegram_bot_token).build()
     
     # Регистрируем обработчики
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     
-    # Обработчик текстовых сообщений
+    # Текстовые сообщения
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Обработчик не-текстовых сообщений
+    # Медиа
     application.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, handle_non_text))
     
-    # Запускаем бота
-    logger.info("Алина запущена и готова к общению! 💛")
+    # Запуск
+    logger.info("Алина запущена! 🚀")
     application.run_polling()
 
 
