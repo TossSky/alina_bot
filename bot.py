@@ -178,22 +178,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     logger.info(f"User {user_id}: {user_message[:50]}...")
     
-    # Проверяем на негатив
-    negativity = analyze_negativity(user_message)
-    if negativity:
-        user_negative_counter[user_id] += 1
-        
-        # Если слишком много негатива - резкий ответ
-        if user_negative_counter[user_id] > 3:
-            responses = ["все, достал. пока", "блокирую", "иди в баню"]
-            response = random.choice(responses)
-            await update.message.reply_text(response)
-            return
-        
-        # Обычная реакция на негатив
-        response = random.choice(NEGATIVE_RESPONSES.get(negativity, ["..."])) 
-        await update.message.reply_text(response)
-        return
     
     # Проверяем спам
     spam_count = check_spam(user_id, user_message)

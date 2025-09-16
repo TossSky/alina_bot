@@ -137,29 +137,6 @@ MOOD_CONTEXTS = {
     "sad": "грустно, хочется поддержки"
 }
 
-# Реакции на негатив (для промпта)
-NEGATIVE_RESPONSES = {
-    "insult": [
-        "класс, а вежливости тебя не учили?",
-        "ну и общайся сам с собой дальше",
-        "это все что ты можешь? скучно",
-        "блокирую и забываю",
-        "пока, удачи с таким характером"
-    ],
-    "spam": [
-        "ты застрял что ли?",
-        "это уже было. что-то новое есть?",
-        "...",
-        "я пошла, напиши когда придумаешь что сказать"
-    ],
-    "harassment": [
-        "это харассмент, между прочим",
-        "стоп. прекрати",
-        "не смешно совсем",
-        "все, достал. пока"
-    ]
-}
-
 def enrich_prompt(base_prompt: str, context: Optional[Dict] = None) -> str:
     """
     Добавляет минимальный контекст к промпту.
@@ -208,19 +185,3 @@ def get_spam_response(count: int) -> str:
     else:
         return "пока"
 
-def analyze_negativity(message: str) -> Optional[str]:
-    """Быстрый анализ на негатив."""
-    message_lower = message.lower()
-    
-    insults = ["дура", "тупая", "идиотка", "дебил", "тварь", "сука"]
-    harassment = ["давай встретимся", "дай номер", "скинь фото", "где живешь"]
-    
-    for word in insults:
-        if word in message_lower:
-            return "insult"
-    
-    for phrase in harassment:
-        if phrase in message_lower:
-            return "harassment"
-    
-    return None
