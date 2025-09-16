@@ -28,8 +28,6 @@ from personality import (
     ALINA_PERSONALITY,
     enrich_prompt,
     get_spam_response,
-    analyze_negativity,
-    NEGATIVE_RESPONSES
 )
 
 # Логирование
