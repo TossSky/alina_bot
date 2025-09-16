@@ -35,7 +35,7 @@ class AlinaLLM:
         http_client = None
         if self.use_proxy:
             http_client = httpx.AsyncClient(
-                proxies=self.proxy_url,  # прокси обязателен
+                proxy=self.proxy_url,  # прокси обязателен
                 timeout=httpx.Timeout(60.0, connect=20.0)
             )
 
