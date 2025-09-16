@@ -86,4 +86,4 @@ class AlinaLLM:
             return "ой, кажется, я зависла. повторишь ещё раз?"
         finally:
             if client:
-                await client.aclose()
+                await client.close()
