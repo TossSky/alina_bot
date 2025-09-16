@@ -1,9 +1,9 @@
 # bot.py - Главный файл бота Алины
 """
 Базовая версия: только приём сообщений, история и ответ LLM.
+С personality.py подключается базовый промпт.
 """
 
-import asyncio
 import logging
 from typing import Dict, List
 
@@ -19,12 +19,12 @@ from telegram.ext import (
 from config import Config
 from database import DialogueDB
 from llm import AlinaLLM
+from personality import ALINA_PERSONALITY, enrich_prompt
 
 # ---------------------------
 # Инициализация
 # ---------------------------
 
-# Логирование (только тексты сообщений)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -45,7 +45,7 @@ llm = AlinaLLM(
 # ---------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /start — без рандома и доп. логики."""
+    """Команда /start."""
     user = update.effective_user
     db.get_or_create_user(
         user_id=user.id,
@@ -58,7 +58,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Приём сообщения, сохранение истории и ответ через LLM."""
+    """Приём сообщения, сохранение истории и ответ через LLM с personality."""
     user = update.effective_user
     user_id = user.id
     user_message = (update.message.text or "").strip()
@@ -70,24 +70,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"User {user_id}: {user_message}")
     db.add_message(user_id, "user", user_message)
 
-    # История (минимальная форма)
+    # История
     history: List[Dict[str, str]] = db.get_dialogue_history(user_id, limit=20)
 
-    # Формируем сообщения для LLM (без доп. промптов и контекста)
-    messages: List[Dict[str, str]] = []
-    messages.extend(history)  # ожидается формат [{"role": "...","content": "..."}]
+    # Промпт из personality
+    system_prompt = enrich_prompt(ALINA_PERSONALITY, {})
+
+    # Формируем сообщения
+    messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
-    # Генерация ответа (сигнатура с llm_context оставлена совместимой)
+    # Генерация ответа
     try:
         response = await llm.generate_response(messages, llm_context=None)
     except TypeError:
-        # На случай, если ваша реализация принимает только один аргумент
         response = await llm.generate_response(messages)
 
-    response = (response or "").strip() or "Хм, не уверена, что поняла. Сформулируешь иначе?"
+    response = (response or "").strip() or "Хм, не уверена, что поняла."
 
-    # Отправка и сохранение исходящего
+    # Отправка и сохранение
     await update.message.reply_text(response)
     db.add_message(user_id, "assistant", response)
     logger.info(f"Alina: {response}")
