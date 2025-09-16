@@ -1,12 +1,13 @@
 # llm.py - Минимальный LLM клиент
 """
 Простой клиент: отправка сообщений в модель.
-— Без ограничений длины ответа (max_tokens не задаётся)
-— Без рандома и постобработки
-— Прокси обязателен
+— Использует прокси (обязательно при use_proxy=True)
+— Генерация с параметрами temperature, top_p, penalties
+— max_tokens не задаём (чтобы не ограничивать длину)
 """
 
 import os
+import random
 import logging
 from typing import List, Dict, Optional
 
@@ -28,14 +29,13 @@ class AlinaLLM:
         self.use_proxy = use_proxy
         self.proxy_url = proxy_url
 
-        # Поддержка кастомного base_url (например, OpenRouter)
         self.base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
 
     async def _create_client(self) -> AsyncOpenAI:
         http_client = None
         if self.use_proxy:
             http_client = httpx.AsyncClient(
-                proxy=self.proxy_url,  # прокси обязателен
+                proxies=self.proxy_url,
                 timeout=httpx.Timeout(60.0, connect=20.0)
             )
 
@@ -44,18 +44,41 @@ class AlinaLLM:
 
         return AsyncOpenAI(api_key=self.api_key, http_client=http_client)
 
+    def _get_generation_params(self, context: Dict) -> Dict:
+        """Подбирает параметры генерации под контекст."""
+        base_temp = 0.85 + random.uniform(-0.05, 0.1)  # 0.8–0.95
+
+        is_emotional = context.get("is_emotional", False)
+        conversation_length = context.get("conversation_length", 0)
+
+        if is_emotional:
+            temperature = min(0.95, base_temp + 0.05)
+        elif conversation_length > 20:
+            temperature = min(0.9, base_temp + 0.03)
+        else:
+            temperature = base_temp
+
+        return {
+            "temperature": temperature,
+            "top_p": 0.95,
+            "frequency_penalty": 0.3 + random.uniform(0, 0.2),  # 0.3–0.5
+            "presence_penalty": 0.3 + random.uniform(0, 0.2),   # 0.3–0.5
+        }
+
     async def generate_response(self, messages: List[Dict[str, str]], context: Optional[Dict] = None) -> str:
-        """
-        Отправляет сообщения в модель и возвращает контент первого ответа.
-        context оставлен для совместимости, но не используется.
-        """
+        """Отправляет сообщения в модель и возвращает контент первого ответа."""
+        if context is None:
+            context = {}
+
+        params = self._get_generation_params(context)
+
         client = None
         try:
             client = await self._create_client()
             resp = await client.chat.completions.create(
                 model=self.model,
-                messages=messages
-                # ВАЖНО: max_tokens НЕ задаём — модель отвечает полной длиной в рамках лимита модели
+                messages=messages,
+                **params
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception as e:
@@ -63,4 +86,4 @@ class AlinaLLM:
             return "ой, кажется, я зависла. повторишь ещё раз?"
         finally:
             if client:
-                await client.close()
+                await client.aclose()
