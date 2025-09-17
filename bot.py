@@ -71,7 +71,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.add_message(user_id, "user", user_message)
 
     # История
-    history: List[Dict[str, str]] = db.get_dialogue_history(user_id, limit=20)
+    history: List[Dict[str, str]] = db.get_dialogue_history(user_id, limit=50)
 
     # Промпт из personality
     system_prompt = enrich_prompt(ALINA_PERSONALITY, {})
