@@ -70,16 +70,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"User {user_id}: {user_message}")
     db.add_message(user_id, "user", user_message)
 
-    # История
+    # История уже содержит только что сохранённое сообщение пользователя
     history: List[Dict[str, str]] = db.get_dialogue_history(user_id, limit=20)
 
-    # Промпт из personality
     system_prompt = enrich_prompt(ALINA_PERSONALITY, {})
 
-    # Формируем сообщения
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": user_message})
+    messages.extend(history)  # НИЧЕГО НЕ ДОБАВЛЯЕМ СЮДА ЕЩЁ РАЗ
+
 
     # Генерация ответа
     try:
