@@ -52,7 +52,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username=user.username,
         first_name=user.first_name,
     )
-    text = "Привет! Я Алина. Пиши, о чём хочешь поговорить."
+    text = "Я Алина. Пиши, о чём хочешь поговорить."
     logger.info(f"Alina: {text}")
     await update.message.reply_text(text)
 
