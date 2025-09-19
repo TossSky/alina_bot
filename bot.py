@@ -74,10 +74,10 @@ async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_ids = config.admin_ids if hasattr(config, 'admin_ids') else []
     
     # Если список админов не задан, разрешаем всем (можно изменить логику)
-    if admin_ids and user_id not in admin_ids:
-        await update.message.reply_text("У вас нет прав для перезапуска бота.")
-        logger.warning(f"User {user_id} tried to restart bot without permission")
-        return
+    # if admin_ids and user_id not in admin_ids:
+    #     await update.message.reply_text("У вас нет прав для перезапуска бота.")
+    #     logger.warning(f"User {user_id} tried to restart bot without permission")
+    #     return
     
     logger.info(f"User {user_id} initiated bot restart")
     await update.message.reply_text("Перезапускаюсь... Подождите несколько секунд.")
