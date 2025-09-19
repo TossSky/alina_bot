@@ -34,6 +34,10 @@ class Config:
         # Отладка
         self.debug = os.getenv("DEBUG", "false").lower() == "true"
         
+        # Админы (список ID пользователей через запятую)
+        admin_ids_str = os.getenv("ADMIN_IDS", "")
+        self.admin_ids = [int(id.strip()) for id in admin_ids_str.split(",") if id.strip().isdigit()]
+        
         # Валидация
         self._validate()
     

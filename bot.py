@@ -5,6 +5,8 @@
 """
 
 import logging
+import os
+import sys
 from typing import Dict, List
 
 from telegram import Update
@@ -62,6 +64,32 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
+async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /restart - перезапускает бота."""
+    user = update.effective_user
+    user_id = user.id
+    
+    # Проверяем, есть ли у пользователя права на перезапуск
+    # Можно добавить список админов через config или проверять владельца бота
+    admin_ids = config.admin_ids if hasattr(config, 'admin_ids') else []
+    
+    # Если список админов не задан, разрешаем всем (можно изменить логику)
+    if admin_ids and user_id not in admin_ids:
+        await update.message.reply_text("У вас нет прав для перезапуска бота.")
+        logger.warning(f"User {user_id} tried to restart bot without permission")
+        return
+    
+    logger.info(f"User {user_id} initiated bot restart")
+    await update.message.reply_text("Перезапускаюсь... Подождите несколько секунд.")
+    
+    # Сохраняем путь к Python и скрипту
+    python = sys.executable
+    script = os.path.abspath(sys.argv[0])
+    
+    # Перезапускаем процесс
+    os.execv(python, [python, script] + sys.argv[1:])
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приём сообщения, сохранение истории и ответ через LLM с personality."""
     user = update.effective_user
@@ -114,6 +142,7 @@ def main():
     application = Application.builder().token(config.telegram_bot_token).build()
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("restart", restart))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Алина запущена")
