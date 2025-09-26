@@ -309,6 +309,8 @@ def main():
         return
 
     application = Application.builder().token(config.telegram_bot_token).build()
+    application.bot_data['subscription_manager'] = subscription_manager
+
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("restart", restart))

@@ -200,10 +200,23 @@ async def create_invoice(
 ) -> None:
     """Создает и отправляет invoice для оплаты."""
     
-    manager = context.bot_data.get('subscription_manager')
+    # берём из bot_data, а если нет — используем глобальный экземпляр
+    manager = context.bot_data.get('subscription_manager') or SubscriptionManager(getattr(context.application, "db", None) or None)
+    # но у тебя subscription_manager уже создан в bot.py и импортирован — используем его напрямую:
+    from payments import SubscriptionManager  # (если уже есть импорт — не дублировать)
+    try:
+        manager = context.bot_data.get('subscription_manager') or subscription_manager
+    except NameError:
+        # если глобальная переменная недоступна в этом модуле, подстрахуемся:
+        manager = context.bot_data.get('subscription_manager')
+
+    # фиксируем в bot_data на будущее
+    context.bot_data['subscription_manager'] = manager
+
     if not manager:
         await update.callback_query.answer("Ошибка: система подписок не инициализирована")
         return
+
     
     if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
         await update.callback_query.answer("Неверный тип подписки")
