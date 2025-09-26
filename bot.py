@@ -183,21 +183,27 @@ async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def reset_limits(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /reset_limits - сбрасывает лимиты (для тестирования)."""
-    user = update.effective_user
-    user_id = user.id
-    
-    # Сбрасываем лимиты
+    """Команда /reset_limits — сброс лимитов (только для админов)."""
+    user_id = update.effective_user.id
+    admin_ids = getattr(config, "admin_ids", [])
+
+    # Если список админов задан и текущий пользователь не админ — молча выходим
+    if admin_ids and user_id not in admin_ids:
+        # можно оставить лог, чтобы видеть попытки (в чат ничего не отправляем)
+        logger.warning(f"Non-admin {user_id} tried to use /reset_limits")
+        return
+
+    # Сбрасываем лимиты текущему пользователю
     db.reset_user_limits(user_id)
-    
+
     await update.message.reply_text(
-        "✅ Ваши лимиты сброшены!\n\n"
-        f"🆕 Теперь у вас снова:\n"
-        f"💬 {config.free_messages_limit} бесплатных сообщений\n"
-        f"🎯 {config.free_tokens_limit} бесплатных токенов"
+        "✅ Лимиты сброшены!\n\n"
+        f"💬 Доступно: {config.free_messages_limit} сообщений\n"
+        f"🎯 Доступно: {config.free_tokens_limit} токенов"
     )
-    
-    logger.info(f"User {user_id} reset their limits")
+
+    logger.info(f"Admin {user_id} reset their limits")
+
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):

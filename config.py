@@ -36,8 +36,9 @@ class Config:
         
         # Админы (список ID пользователей через запятую)
         admin_ids_str = os.getenv("ADMIN_IDS", "")
-        self.admin_ids = [int(id.strip()) for id in admin_ids_str.split(",") if id.strip().isdigit()]
-        
+        self.admin_ids = [int(id.strip()) for id in admin_ids_str.split(",") if id.strip().isdigit()] or [
+            367288553, 7372093786, 916411940
+        ]
         # Платежи
         self.payments_token = os.getenv("PAYMENTS_TOKEN", "1744374395:TEST:923f8a2de386e1a60ee5")
         self.subscription_required = os.getenv("SUBSCRIPTION_REQUIRED", "true").lower() == "true"
