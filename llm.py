@@ -123,8 +123,26 @@ class AlinaLLM:
             resp = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
+                prompt_cache_key="alina:system:v1",
                 **params
             )
+
+            response_text = (resp.choices[0].message.content or "").strip()
+
+            # Достаём usage
+            usage = getattr(resp, "usage", None)
+            if usage:
+                prompt = usage.prompt_tokens
+                completion = usage.completion_tokens
+                total = usage.total_tokens
+                cached = getattr(usage.prompt_tokens_details, "cached_tokens", 0)
+
+                logger.info(
+                    f"Token usage: input={prompt} (cached={cached}), "
+                    f"output={completion}, total={total}"
+                )
+
+
             
             response_text = (resp.choices[0].message.content or "").strip()
             
