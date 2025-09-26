@@ -53,7 +53,7 @@ llm = AlinaLLM(
 
 # Менеджер подписок
 subscription_manager = SubscriptionManager(db)
-
+SYSTEM_PROMPT = enrich_prompt(ALINA_PERSONALITY, {})  # создаётся один раз при старте
 # ---------------------------
 # Обработчики
 # ---------------------------
@@ -250,14 +250,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # История уже содержит только что сохранённое сообщение пользователя
     history: List[Dict[str, str]] = db.get_dialogue_history(user_id, limit=20)
 
-    system_prompt = enrich_prompt(ALINA_PERSONALITY, {})
+    messages: List[Dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(history)
 
-    # 1) Сначала реально собираем те messages, которые пойдут в модель
-    messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)  # история уже включает только что сохранённый "user"
+    sys_tokens_only = llm.count_tokens_messages([{"role": "system", "content": SYSTEM_PROMPT}])
 
-    # 2) Счётчики токенов для отладки + отдельно токены system-блока
-    sys_tokens_only = llm.count_tokens_messages([{"role": "system", "content": system_prompt}])
     hist_tok  = llm.count_tokens_messages(history)
     total_est = llm.count_tokens_messages(messages)
     logger.info(f"CTX tokens: system={sys_tokens_only}, history={hist_tok}, total_est={total_est}")
