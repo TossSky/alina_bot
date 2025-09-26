@@ -202,18 +202,21 @@ async def create_invoice(
     
     manager = context.bot_data.get('subscription_manager')
     if not manager:
-        await update.message.reply_text("Ошибка: система подписок не инициализирована")
+        await update.callback_query.answer("Ошибка: система подписок не инициализирована")
         return
     
     if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
-        await update.message.reply_text("Неверный тип подписки")
+        await update.callback_query.answer("Неверный тип подписки")
         return
     
     plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
     
     # Проверяем тестовый режим
     if payments_token.split(':')[1] == 'TEST':
-        await update.message.reply_text("⚠️ Тестовый платеж! Средства не будут списаны.")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="⚠️ Тестовый платеж! Средства не будут списаны."
+        )
     
     # Создаем цену
     price = LabeledPrice(label=plan["description"], amount=plan["price"])
@@ -235,3 +238,20 @@ async def create_invoice(
         start_parameter=f"subscription-{plan_type}",
         protect_content=True
     )
+
+
+async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик нажатия на кнопку подписки."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Извлекаем тип подписки из callback_data
+    # Формат: subscribe_day, subscribe_week, subscribe_month
+    plan_type = query.data.replace("subscribe_", "")
+    
+    # Получаем токен платежей из конфига
+    from config import Config
+    config = Config()
+    
+    # Создаем и отправляем invoice
+    await create_invoice(update, context, plan_type, config.payments_token)
