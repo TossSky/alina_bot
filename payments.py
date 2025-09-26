@@ -18,12 +18,11 @@ class SubscriptionManager:
     # Тарифные планы (цены в копейках)
     SUBSCRIPTION_PLANS = {
         "day": {
-            "name": "День (тест 1 мин)",
-            "price": 9900,
-            "minutes": 1,
-            "description": "Подписка на ~1 минуту (тест)"
+            "name": "День",
+            "price": 9900,  # 99 рублей
+            "days": 1,
+            "description": "Подписка на 1 день"
         },
-
         "week": {
             "name": "Неделя", 
             "price": 49900,  # 499 рублей
@@ -141,12 +140,7 @@ class SubscriptionManager:
             """, (user_id,))
             
             # Добавляем новую подписку
-            # поддержка коротких тестовых планов
-            if "minutes" in plan:
-                end_date = datetime.now() + timedelta(minutes=plan["minutes"])
-            else:
-                end_date = datetime.now() + timedelta(days=plan["days"])
-
+            end_date = datetime.now() + timedelta(days=plan["days"])
             
             cursor.execute("""
                 INSERT INTO subscriptions (user_id, plan_type, end_date, payment_id, amount, currency)
