@@ -151,7 +151,30 @@ class AlinaLLM:
             total_tokens = input_tokens + output_tokens
             
             # Логируем использование токенов
-            logger.info(f"Token usage: input={input_tokens}, output={output_tokens}, total={total_tokens}")
+            # Тарифы OpenAI ($ за 1M токенов)
+            PRICE_INPUT = 0.00125      # обычный input
+            PRICE_CACHED = 0.00013     # cached input
+            PRICE_OUTPUT = 0.01        # output
+
+            # Считаем количество cached токенов (берём из response, если API вернул details)
+            cached_tokens = getattr(resp.usage.prompt_tokens_details, "cached_tokens", 0)
+
+            # Пересчитываем "чистый input"
+            net_input = input_tokens - cached_tokens
+
+            # Стоимость
+            cost_input = net_input * PRICE_INPUT / 1_000_000
+            cost_cached = cached_tokens * PRICE_CACHED / 1_000_000
+            cost_output = output_tokens * PRICE_OUTPUT / 1_000_000
+            cost_total = cost_input + cost_cached + cost_output
+
+            logger.info(
+                f"Token usage: input={input_tokens} (cached={cached_tokens}), "
+                f"output={output_tokens}, total={total_tokens} | "
+                f"cost: input=${cost_input:.6f}, cached=${cost_cached:.6f}, "
+                f"output=${cost_output:.6f}, total=${cost_total:.6f}"
+            )
+
             
             return response_text, total_tokens
         except Exception as e:
