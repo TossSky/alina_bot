@@ -35,8 +35,8 @@ class Config:
         self.debug = os.getenv("DEBUG", "false").lower() == "true"
         
         # Админы (список ID пользователей через запятую)
-        admin_ids_str = []
-        self.admin_ids = [int(id.strip()) for id in admin_ids_str.split(",") if id.strip().isdigit()] or [
+
+        self.admin_ids = [
             367288553, 7372093786, 916411940
         ]
         # Платежи
