@@ -250,46 +250,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
     messages.extend(history)  # история уже включает только что сохранённый "user"
 
-    # 2) Теперь считаем и логируем разбивку
-    sys_tok   = llm.count_tokens_text(system_prompt)
+    # 2) Счётчики токенов для отладки + отдельно токены system-блока
+    sys_tokens_only = llm.count_tokens_messages([{"role": "system", "content": system_prompt}])
     hist_tok  = llm.count_tokens_messages(history)
     total_est = llm.count_tokens_messages(messages)
-    logger.info(f"CTX tokens: system={sys_tok}, history={hist_tok}, total_est={total_est}")
-
+    logger.info(f"CTX tokens: system={sys_tokens_only}, history={hist_tok}, total_est={total_est}")
 
 
     # Генерация ответа
-    response_text, tokens_used = await llm.generate_response(messages)
+    response_text, tokens_used_total = await llm.generate_response(messages)
     response_text = (response_text or "").strip() or "Хм, не уверена, что поняла."
+
+    # ВЫЧИТАЕМ system-промпт из общих токенов для пользовательских лимитов
+    tokens_used_net = max(0, tokens_used_total - sys_tokens_only)
 
     # Добавляем предупреждение о лимите, если нужно
     warning = ""
     if config.subscription_required and not subscription_manager.has_active_subscription(user_id):
         usage = db.get_user_usage(user_id)
-        messages_used = usage["messages"] + 1  # +1 за текущее сообщение
-        tokens_total = usage["tokens"] + tokens_used
-        
+        messages_used = usage["messages"] + 1  # +1 за текущее сообщение пользователя
+        tokens_total = usage["tokens"] + tokens_used_net  # ← считаем по NETTO
+
         messages_left = config.free_messages_limit - messages_used
         tokens_left = config.free_tokens_limit - tokens_total
-        
-        # Проверяем близость к лимитам
+
         if messages_left <= 3 or tokens_left <= 500:
             warning = "\n\n_⚠️ Лимиты бесплатного использования:_\n"
             if messages_left <= 3:
                 warning += f"_💬 Осталось сообщений: {messages_left}_\n"
             if tokens_left <= 500:
                 warning += f"_🎯 Осталось токенов: {max(0, tokens_left)}_\n"
-            
             if messages_left == 0 or tokens_left <= 0:
                 warning += "_\n🔴 Это было ваше последнее бесплатное сообщение! /subscribe_"
-    
+
     # Отправка и сохранение
     final_response = response_text + warning
     await update.message.reply_text(final_response, parse_mode='Markdown')
-    
-    # Сохраняем в БД с информацией о токенах
-    db.add_message(user_id, "assistant", response_text, tokens_used)
-    logger.info(f"Alina: {response_text[:100]}... (tokens: {tokens_used})")
+
+    # Сохраняем в БД NETTO-токены (без system)
+    db.add_message(user_id, "assistant", response_text, tokens_used_net)
+    logger.info(
+        f"Alina: {response_text[:100]}... (tokens_net: {tokens_used_net}, total_raw: {tokens_used_total}, sys: {sys_tokens_only})"
+    )
+
 
 
 # ---------------------------
