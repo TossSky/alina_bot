@@ -10,6 +10,7 @@ import os
 import random
 import logging
 from typing import List, Dict, Optional
+import tiktoken
 
 import httpx
 from openai import AsyncOpenAI
@@ -65,17 +66,41 @@ class AlinaLLM:
             "presence_penalty": 0.3 + random.uniform(0, 0.2),   # 0.3–0.5
         }
 
-    def estimate_tokens(self, text: str) -> int:
-        """Приблизительный подсчет токенов.
-        
-        Используется простая формула: 
-        - Английский: ~0.75 токенов на слово
-        - Русский: ~1.3 токена на слово
+    def _get_encoder(self):
+        """Подбираем энкодер для модели; fallback на cl100k_base."""
+        try:
+            return tiktoken.encoding_for_model(self.model)
+        except Exception:
+            return tiktoken.get_encoding("cl100k_base")
+
+    def count_tokens_text(self, text: str) -> int:
+        enc = self._get_encoder()
+        return len(enc.encode(text or ""))
+
+    def count_tokens_messages(self, messages: List[Dict[str, str]]) -> int:
         """
-        # Простой подсчет через длину текста
-        # Для GPT моделей примерно 4 символа = 1 токен
-        # Для русского языка это ближе к 2-3 символам
-        return len(text) // 3
+        Приближённый подсчёт токенов для chat-комплишнов по схеме ChatML.
+        Берём параметры как в OpenAI Cookbook (актуально для gpt-3.5/4/4o),
+        что хорошо приближает и 4o/5-семейства:
+        - tokens_per_message = 3
+        - tokens_per_name    = 1
+        """
+        enc = self._get_encoder()
+        tokens_per_message = 3
+        tokens_per_name = 1
+
+        total = 0
+        for m in messages:
+            total += tokens_per_message
+            total += len(enc.encode(m.get("content") or ""))
+            # role обычно не кодируется в контент, но ChatML включает метаданную токенизацию
+            # добавим 1 токен, если есть name (на будущее)
+            if m.get("name"):
+                total += tokens_per_name
+        # плюс токены на завершающий примаркер assistant'а
+        total += 3
+        return total
+
     
     async def generate_response(self, messages: List[Dict[str, str]], context: Optional[Dict] = None) -> tuple[str, int]:
         """Отправляет сообщения в модель и возвращает ответ и количество токенов.
@@ -93,7 +118,7 @@ class AlinaLLM:
             client = await self._create_client()
             
             # Подсчитываем токены во входных сообщениях
-            input_tokens = sum(self.estimate_tokens(msg["content"]) for msg in messages)
+            input_tokens = self.count_tokens_messages(messages)
             
             resp = await client.chat.completions.create(
                 model=self.model,
@@ -104,7 +129,7 @@ class AlinaLLM:
             response_text = (resp.choices[0].message.content or "").strip()
             
             # Подсчитываем токены в ответе
-            output_tokens = self.estimate_tokens(response_text)
+            output_tokens = self.count_tokens_text(response_text)
             total_tokens = input_tokens + output_tokens
             
             # Логируем использование токенов
