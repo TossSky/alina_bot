@@ -41,7 +41,8 @@ class Config:
         # Платежи
         self.payments_token = os.getenv("PAYMENTS_TOKEN", "1744374395:TEST:923f8a2de386e1a60ee5")
         self.subscription_required = os.getenv("SUBSCRIPTION_REQUIRED", "false").lower() == "true"
-        self.free_messages_limit = int(os.getenv("FREE_MESSAGES_LIMIT", "5"))
+        self.free_messages_limit = int(os.getenv("FREE_MESSAGES_LIMIT", "15"))
+        self.free_tokens_limit = int(os.getenv("FREE_TOKENS_LIMIT", "2000"))
         
         # Валидация
         self._validate()

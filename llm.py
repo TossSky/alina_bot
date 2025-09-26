@@ -65,8 +65,24 @@ class AlinaLLM:
             "presence_penalty": 0.3 + random.uniform(0, 0.2),   # 0.3–0.5
         }
 
-    async def generate_response(self, messages: List[Dict[str, str]], context: Optional[Dict] = None) -> str:
-        """Отправляет сообщения в модель и возвращает контент первого ответа."""
+    def estimate_tokens(self, text: str) -> int:
+        """Приблизительный подсчет токенов.
+        
+        Используется простая формула: 
+        - Английский: ~0.75 токенов на слово
+        - Русский: ~1.3 токена на слово
+        """
+        # Простой подсчет через длину текста
+        # Для GPT моделей примерно 4 символа = 1 токен
+        # Для русского языка это ближе к 2-3 символам
+        return len(text) // 3
+    
+    async def generate_response(self, messages: List[Dict[str, str]], context: Optional[Dict] = None) -> tuple[str, int]:
+        """Отправляет сообщения в модель и возвращает ответ и количество токенов.
+        
+        Returns:
+            tuple: (текст ответа, количество использованных токенов)
+        """
         if context is None:
             context = {}
 
@@ -75,15 +91,29 @@ class AlinaLLM:
         client = None
         try:
             client = await self._create_client()
+            
+            # Подсчитываем токены во входных сообщениях
+            input_tokens = sum(self.estimate_tokens(msg["content"]) for msg in messages)
+            
             resp = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 **params
             )
-            return (resp.choices[0].message.content or "").strip()
+            
+            response_text = (resp.choices[0].message.content or "").strip()
+            
+            # Подсчитываем токены в ответе
+            output_tokens = self.estimate_tokens(response_text)
+            total_tokens = input_tokens + output_tokens
+            
+            # Логируем использование токенов
+            logger.info(f"Token usage: input={input_tokens}, output={output_tokens}, total={total_tokens}")
+            
+            return response_text, total_tokens
         except Exception as e:
             logger.error(f"LLM error: {e}")
-            return "ой, кажется, я зависла. повторишь ещё раз?"
+            return "ой, кажется, я зависла. повторишь ещё раз?", 0
         finally:
             if client:
                 await client.close()

@@ -91,9 +91,20 @@ async def subscription_status(update: Update, context: ContextTypes.DEFAULT_TYPE
         info = subscription_manager.format_subscription_info(user_id)
         await update.message.reply_text(f"✅ {info}")
     else:
+        # Показываем информацию об использовании лимитов
+        usage = db.get_user_usage(user_id)
+        messages_used = usage["messages"]
+        tokens_used = usage["tokens"]
+        messages_left = max(0, config.free_messages_limit - messages_used)
+        tokens_left = max(0, config.free_tokens_limit - tokens_used)
+        
         await update.message.reply_text(
-            "❌ У вас нет активной подписки.\n\n"
-            "Используйте /subscribe для оформления."
+            "❌ *У вас нет активной подписки*\n\n"
+            f"📦 *Бесплатные лимиты:*\n"
+            f"💬 Сообщения: {messages_used}/{config.free_messages_limit} (осталось {messages_left})\n"
+            f"🎯 Токены: {tokens_used}/{config.free_tokens_limit} (осталось {tokens_left})\n\n"
+            "Используйте /subscribe для оформления подписки.",
+            parse_mode='Markdown'
         )
 
 
@@ -175,6 +186,24 @@ async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.execv(python, [python, script] + sys.argv[1:])
 
 
+async def reset_limits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /reset_limits - сбрасывает лимиты (для тестирования)."""
+    user = update.effective_user
+    user_id = user.id
+    
+    # Сбрасываем лимиты
+    db.reset_user_limits(user_id)
+    
+    await update.message.reply_text(
+        "✅ Ваши лимиты сброшены!\n\n"
+        f"🆕 Теперь у вас снова:\n"
+        f"💬 {config.free_messages_limit} бесплатных сообщений\n"
+        f"🎯 {config.free_tokens_limit} бесплатных токенов"
+    )
+    
+    logger.info(f"User {user_id} reset their limits")
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приём сообщения, сохранение истории и ответ через LLM с personality."""
     user = update.effective_user
@@ -187,24 +216,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Проверяем подписку, если она требуется
     if config.subscription_required:
         if not subscription_manager.has_active_subscription(user_id):
-            # Проверяем лимит бесплатных сообщений
-            user_data = db.get_or_create_user(user_id)
-            free_messages_used = user_data.get('total_messages', 0)
+            # Получаем информацию об использовании
+            usage = db.get_user_usage(user_id)
+            messages_used = usage["messages"]
+            tokens_used = usage["tokens"]
             
-            if free_messages_used >= config.free_messages_limit:
+            # Проверяем оба лимита
+            messages_exceeded = messages_used >= config.free_messages_limit
+            tokens_exceeded = tokens_used >= config.free_tokens_limit
+            
+            if messages_exceeded or tokens_exceeded:
+                limit_msg = ""
+                if messages_exceeded:
+                    limit_msg = f"💬 Использовано сообщений: {messages_used}/{config.free_messages_limit}\n"
+                if tokens_exceeded:
+                    limit_msg += f"🎯 Использовано токенов: {tokens_used}/{config.free_tokens_limit}\n"
+                
                 await update.message.reply_text(
-                    f"❌ Вы использовали все {config.free_messages_limit} бесплатных сообщений.\n\n"
+                    f"❌ Вы достигли лимита бесплатного использования:\n\n"
+                    f"{limit_msg}\n"
                     "Для продолжения общения необходима подписка.\n"
                     "Используйте /subscribe для оформления.",
                     reply_markup=subscription_manager.get_subscription_keyboard()
                 )
                 return
-            else:
-                messages_left = config.free_messages_limit - free_messages_used - 1
-                if messages_left > 0:
-                    warning_text = f"\n\n_⚠️ Осталось бесплатных сообщений: {messages_left}_"
-                else:
-                    warning_text = f"\n\n_⚠️ Это ваше последнее бесплатное сообщение!_"
 
     # Лог и сохранение входящего
     logger.info(f"User {user_id}: {user_message}")
@@ -220,27 +255,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
     # Генерация ответа
-    try:
-        response = await llm.generate_response(messages, llm_context=None)
-    except TypeError:
-        response = await llm.generate_response(messages)
+    response_text, tokens_used = await llm.generate_response(messages)
+    response_text = (response_text or "").strip() or "Хм, не уверена, что поняла."
 
-    response = (response or "").strip() or "Хм, не уверена, что поняла."
-
-    # Отправка и сохранение
     # Добавляем предупреждение о лимите, если нужно
+    warning = ""
     if config.subscription_required and not subscription_manager.has_active_subscription(user_id):
-        user_data = db.get_or_create_user(user_id)
-        free_messages_used = user_data.get('total_messages', 0)
-        messages_left = config.free_messages_limit - free_messages_used
-        if messages_left > 0 and messages_left <= 2:
-            response += f"\n\n_⚠️ Осталось бесплатных сообщений: {messages_left}_"
-        elif messages_left == 0:
-            response += f"\n\n_⚠️ Это было ваше последнее бесплатное сообщение! Используйте /subscribe для продолжения._"
+        usage = db.get_user_usage(user_id)
+        messages_used = usage["messages"] + 1  # +1 за текущее сообщение
+        tokens_total = usage["tokens"] + tokens_used
+        
+        messages_left = config.free_messages_limit - messages_used
+        tokens_left = config.free_tokens_limit - tokens_total
+        
+        # Проверяем близость к лимитам
+        if messages_left <= 3 or tokens_left <= 500:
+            warning = "\n\n_⚠️ Лимиты бесплатного использования:_\n"
+            if messages_left <= 3:
+                warning += f"_💬 Осталось сообщений: {messages_left}_\n"
+            if tokens_left <= 500:
+                warning += f"_🎯 Осталось токенов: {max(0, tokens_left)}_\n"
+            
+            if messages_left == 0 or tokens_left <= 0:
+                warning += "_\n🔴 Это было ваше последнее бесплатное сообщение! /subscribe_"
     
-    await update.message.reply_text(response, parse_mode='Markdown')
-    db.add_message(user_id, "assistant", response)
-    logger.info(f"Alina: {response}")
+    # Отправка и сохранение
+    final_response = response_text + warning
+    await update.message.reply_text(final_response, parse_mode='Markdown')
+    
+    # Сохраняем в БД с информацией о токенах
+    db.add_message(user_id, "assistant", response_text, tokens_used)
+    logger.info(f"Alina: {response_text[:100]}... (tokens: {tokens_used})")
 
 
 # ---------------------------
@@ -260,6 +305,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("restart", restart))
+    application.add_handler(CommandHandler("reset_limits", reset_limits))
     application.add_handler(CommandHandler("subscribe", subscribe))
     application.add_handler(CommandHandler("subscription", subscription_status))
     application.add_handler(CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"))

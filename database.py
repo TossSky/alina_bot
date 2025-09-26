@@ -36,9 +36,16 @@ class DialogueDB:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     total_messages INTEGER DEFAULT 0,
+                    total_tokens INTEGER DEFAULT 0,
                     user_data TEXT DEFAULT '{}'
                 )
             """)
+            
+            # Добавляем колонку total_tokens если её нет (для существующих БД)
+            cursor.execute("PRAGMA table_info(users)")
+            columns = [column[1] for column in cursor.fetchall()]
+            if 'total_tokens' not in columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN total_tokens INTEGER DEFAULT 0")
             
             # Таблица сообщений
             cursor.execute("""
@@ -104,8 +111,15 @@ class DialogueDB:
             return user_dict
 
     
-    def add_message(self, user_id: int, role: str, content: str):
-        """Добавляет сообщение в историю."""
+    def add_message(self, user_id: int, role: str, content: str, tokens_used: int = 0):
+        """Добавляет сообщение в историю.
+        
+        Args:
+            user_id: ID пользователя
+            role: Роль (user/assistant)
+            content: Текст сообщения
+            tokens_used: Количество использованных токенов (для assistant)
+        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
@@ -115,13 +129,21 @@ class DialogueDB:
                 VALUES (?, ?, ?)
             """, (user_id, role, content))
             
-            # Увеличиваем счётчик сообщений
+            # Увеличиваем счётчики
             if role == "user":
                 cursor.execute("""
                     UPDATE users 
                     SET total_messages = total_messages + 1 
                     WHERE user_id = ?
                 """, (user_id,))
+            
+            # Добавляем токены если указаны
+            if tokens_used > 0:
+                cursor.execute("""
+                    UPDATE users 
+                    SET total_tokens = total_tokens + ? 
+                    WHERE user_id = ?
+                """, (tokens_used, user_id))
             
             conn.commit()
             
@@ -222,6 +244,52 @@ class DialogueDB:
                 return user_data.get(key, default)
             
             return default
+    
+    def reset_user_limits(self, user_id: int):
+        """Сбрасывает счетчики пользователя (для тестирования)."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE users 
+                SET total_messages = 0, total_tokens = 0 
+                WHERE user_id = ?
+            """, (user_id,))
+            conn.commit()
+    
+    def get_user_usage(self, user_id: int) -> Dict:
+        """Получает информацию об использовании лимитов."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Проверяем наличие колонки total_tokens
+            cursor.execute("PRAGMA table_info(users)")
+            columns = [column[1] for column in cursor.fetchall()]
+            has_tokens = 'total_tokens' in columns
+            
+            if has_tokens:
+                cursor.execute("""
+                    SELECT total_messages, total_tokens 
+                    FROM users WHERE user_id = ?
+                """, (user_id,))
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        "messages": result[0] or 0,
+                        "tokens": result[1] or 0
+                    }
+            else:
+                cursor.execute("""
+                    SELECT total_messages 
+                    FROM users WHERE user_id = ?
+                """, (user_id,))
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        "messages": result[0] or 0,
+                        "tokens": 0
+                    }
+            
+            return {"messages": 0, "tokens": 0}
     
     def get_conversation_stats(self, user_id: int) -> Dict:
         """Получает статистику диалога."""
