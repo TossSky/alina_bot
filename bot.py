@@ -246,6 +246,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     system_prompt = enrich_prompt(ALINA_PERSONALITY, {})
 
+    sys_tok   = llm.count_tokens_text(system_prompt)
+    hist_tok  = llm.count_tokens_messages(history)  # ноль, если историю очистили
+    user_tok  = llm.count_tokens_text(user_message)
+    total_est = llm.count_tokens_messages(messages)
+    logger.info(f"CTX tokens: system={sys_tok}, history={hist_tok}, user={user_tok}, total_est={total_est}")
+    
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
     messages.extend(history)  # НИЧЕГО НЕ ДОБАВЛЯЕМ СЮДА ЕЩЁ РАЗ
 
