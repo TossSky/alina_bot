@@ -38,6 +38,11 @@ class Config:
         admin_ids_str = os.getenv("ADMIN_IDS", "")
         self.admin_ids = [int(id.strip()) for id in admin_ids_str.split(",") if id.strip().isdigit()]
         
+        # Платежи
+        self.payments_token = os.getenv("PAYMENTS_TOKEN", "1744374395:TEST:923f8a2de386e1a60ee5")
+        self.subscription_required = os.getenv("SUBSCRIPTION_REQUIRED", "false").lower() == "true"
+        self.free_messages_limit = int(os.getenv("FREE_MESSAGES_LIMIT", "5"))
+        
         # Валидация
         self._validate()
     

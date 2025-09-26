@@ -16,12 +16,15 @@ from telegram.ext import (
     MessageHandler,
     ContextTypes,
     filters,
+    CallbackQueryHandler,
+    PreCheckoutQueryHandler,
 )
 
 from config import Config
 from database import DialogueDB
 from llm import AlinaLLM
 from personality import ALINA_PERSONALITY, enrich_prompt
+from payments import SubscriptionManager, create_invoice
 
 # ---------------------------
 # Инициализация
