@@ -121,36 +121,56 @@ class SubscriptionManager:
             return None
     
     def add_subscription(self, user_id: int, plan_type: str, payment_id: str = None) -> bool:
-        """Добавляет новую подписку."""
         if plan_type not in self.SUBSCRIPTION_PLANS:
             logger.error(f"Unknown subscription plan: {plan_type}")
             return False
-        
+
         plan = self.SUBSCRIPTION_PLANS[plan_type]
-        
+        add_delta = timedelta(minutes=plan["minutes"]) if "minutes" in plan else timedelta(days=plan["days"])
+
         import sqlite3
         with sqlite3.connect(self.db.db_path) as conn:
             cursor = conn.cursor()
-            
-            # Деактивируем старые подписки
+
+            # Есть ли уже активная подписка?
             cursor.execute("""
-                UPDATE subscriptions 
-                SET is_active = 0 
-                WHERE user_id = ? AND is_active = 1
+                SELECT id, plan_type, end_date
+                FROM subscriptions
+                WHERE user_id = ? AND is_active = 1 AND end_date > CURRENT_TIMESTAMP
+                ORDER BY end_date DESC LIMIT 1
             """, (user_id,))
-            
-            # Добавляем новую подписку
-            end_date = datetime.now() + timedelta(days=plan["days"])
-            
-            cursor.execute("""
-                INSERT INTO subscriptions (user_id, plan_type, end_date, payment_id, amount, currency)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (user_id, plan_type, end_date, payment_id, plan["price"], "RUB"))
-            
+            row = cursor.fetchone()
+
+            now = datetime.now()
+
+            if row:
+                # ПРОДЛЕВАЕМ текущую активную подписку
+                sub_id, cur_plan, cur_end = row[0], row[1], row[2]
+                cur_end_dt = datetime.fromisoformat(cur_end)
+
+                # Продлеваем от большего из (сейчас, текущий конец)
+                base = cur_end_dt if cur_end_dt > now else now
+                new_end = base + add_delta
+
+                # (опционально) можно обновить plan_type на новый
+                cursor.execute("""
+                    UPDATE subscriptions
+                    SET plan_type = ?, end_date = ?, amount = COALESCE(amount,0) + ?, is_active = 1
+                    WHERE id = ?
+                """, (plan_type, new_end, plan["price"], sub_id))
+                logger.info(f"Extended subscription for user {user_id}: {cur_end_dt} -> {new_end} ({plan_type})")
+            else:
+                # НЕТ активной: создаём новую
+                new_end = now + add_delta
+                cursor.execute("""
+                    INSERT INTO subscriptions (user_id, plan_type, end_date, payment_id, amount, currency, is_active)
+                    VALUES (?, ?, ?, ?, ?, 'RUB', 1)
+                """, (user_id, plan_type, new_end, payment_id, plan["price"]))
+                logger.info(f"Created new subscription for user {user_id} until {new_end} ({plan_type})")
+
             conn.commit()
-            
-            logger.info(f"Added {plan_type} subscription for user {user_id}")
             return True
+
     
     def get_subscription_keyboard(self) -> InlineKeyboardMarkup:
         """Создает клавиатуру с вариантами подписки."""
