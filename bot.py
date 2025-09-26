@@ -148,16 +148,12 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
         )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /start."""
     user = update.effective_user
-    db.get_or_create_user(
-        user_id=user.id,
-        username=user.username,
-        first_name=user.first_name,
-    )
+    db.get_or_create_user(user_id=user.id)
     text = "Меня зовут Алина) рада буду пообщаться с тобой!"
     logger.info(f"Alina: {text}")
     await update.message.reply_text(text)
+
 
 
 async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):

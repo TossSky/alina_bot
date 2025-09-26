@@ -12,27 +12,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ... imports и logger без изменений ...
 
 class DialogueDB:
-    """
-    Простая база данных для хранения диалогов.
-    """
-    
     def __init__(self, db_path: str = "alina.db"):
         self.db_path = db_path
         self.init_db()
-    
+
     def init_db(self):
-        """Инициализирует таблицы БД."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            
-            # Таблица пользователей
+
+            # users без username/first_name
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
-                    username TEXT,
-                    first_name TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     total_messages INTEGER DEFAULT 0,
@@ -40,14 +34,8 @@ class DialogueDB:
                     user_data TEXT DEFAULT '{}'
                 )
             """)
-            
-            # Добавляем колонку total_tokens если её нет (для существующих БД)
-            cursor.execute("PRAGMA table_info(users)")
-            columns = [column[1] for column in cursor.fetchall()]
-            if 'total_tokens' not in columns:
-                cursor.execute("ALTER TABLE users ADD COLUMN total_tokens INTEGER DEFAULT 0")
-            
-            # Таблица сообщений
+
+            # Таблица сообщений (как была)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,56 +46,47 @@ class DialogueDB:
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
-            
-            # Индекс для быстрого поиска
+
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_messages_user_timestamp 
+                CREATE INDEX IF NOT EXISTS idx_messages_user_timestamp
                 ON messages (user_id, timestamp DESC)
             """)
-            
+
             conn.commit()
-    
-    def get_or_create_user(self, user_id: int, username: str = None, first_name: str = None) -> Dict:
-        """Получает или создаёт пользователя."""
+
+    def get_or_create_user(self, user_id: int) -> Dict:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-
-            # Явно перечисляем столбцы, чтобы потом легко собрать dict
             cursor.execute("""
-                SELECT user_id, username, first_name, created_at, last_active, total_messages, user_data
+                SELECT user_id, created_at, last_active, total_messages, total_tokens, user_data
                 FROM users WHERE user_id = ?
             """, (user_id,))
             row = cursor.fetchone()
 
             if row is None:
-                # Создаем нового
                 cursor.execute(
-                    "INSERT INTO users (user_id, username, first_name) VALUES (?, ?, ?)",
-                    (user_id, username, first_name)
+                    "INSERT INTO users (user_id) VALUES (?)",
+                    (user_id,)
                 )
                 conn.commit()
                 return {
                     "user_id": user_id,
-                    "username": username,
-                    "first_name": first_name,
                     "created_at": datetime.now().isoformat(),
                     "last_active": datetime.now().isoformat(),
                     "total_messages": 0,
+                    "total_tokens": 0,
                     "user_data": {}
                 }
 
-            # Сохраняем dict ДО UPDATE (иначе description обнулится)
-            columns = ["user_id", "username", "first_name", "created_at", "last_active", "total_messages", "user_data"]
+            columns = ["user_id", "created_at", "last_active", "total_messages", "total_tokens", "user_data"]
             user_dict = dict(zip(columns, row))
             try:
                 user_dict["user_data"] = json.loads(user_dict.get("user_data") or "{}")
             except Exception:
                 user_dict["user_data"] = {}
 
-            # Обновляем last_active уже после того, как собрали словарь
             cursor.execute("UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
             conn.commit()
-
             return user_dict
 
     
