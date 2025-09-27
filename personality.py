@@ -39,7 +39,7 @@ def _fetch_personality_from_gdocs(url: str, timeout: float = 10.0) -> str:
 
 # Load personality on module import
 ALINA_PERSONALITY = _fetch_personality_from_gdocs(ALINA_DOC_URL)
-
+print(ALINA_PERSONALITY)
 # Mood modifiers for context
 MOOD_CONTEXTS = {
     "morning": "только проснулась, хочу кофе и тишину",
