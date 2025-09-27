@@ -1,6 +1,11 @@
-# Основные зависимости
+# Core dependencies
 python-telegram-bot==21.4
 openai>=1.68.0
+tiktoken>=0.5.0
+
+# Environment and HTTP
 python-dotenv>=1.0.0
 httpx>=0.24.0
+
+# Data validation
 pydantic>=2.0.0

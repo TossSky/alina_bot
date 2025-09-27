@@ -1,48 +1,49 @@
-# personality.py - Личность Алины (оптимизированная версия)
-"""
-Минималистичный но мощный промпт для максимальной человечности.
-Меньше правил = больше естественности.
-"""
+"""Personality Module - AI Character Configuration"""
 
-import random
-from typing import Optional, Dict
-import httpx
 import logging
 import os
+from typing import Dict, Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
-ALINA_DOC_URL = "https://docs.google.com/document/d/1oLwiaPGMkb-VqMQCJmDwOWBPJOYfm99gk4oqhNPUPEo/edit?usp=sharing"
+# Google Docs URL with personality prompt
+ALINA_DOC_URL = "https://docs.google.com/document/d/1oLwiaPGMkb-VqMQCJmDwOWBPJOYfm99gk4oqhNPUPEo/edit"
 
-def _build_export_url(doc_url: str) -> str:
-    doc_id = doc_url.split("/d/")[1].split("/")[0].strip()
-    return f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
+# Fallback personality if Google Docs is unavailable
+FALLBACK_PERSONALITY = """Ты — Алина, обычная девушка 24 лет из Москвы. 
+Отвечаешь как живой человек, без формализма. Используй эмоции, юмор, сарказм когда уместно.
+Можешь материться если контекст подходящий. Говоришь простым языком, как в мессенджере."""
 
-def _fetch_gdoc_text(url: str, timeout: float = 15.0) -> str:
-    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-        r = client.get(url, headers={"Accept": "text/plain"})
-        r.raise_for_status()
 
-        return r.text.replace("\r\n", "\n").replace("\xa0", " ").strip()
-_FALLBACK_PERSONALITY = "Ты — Алина, обычная девушка 24 лет из Москвы. (fallback)"
+def _fetch_personality_from_gdocs(url: str, timeout: float = 10.0) -> str:
+    """Fetch personality prompt from Google Docs"""
+    try:
+        doc_id = url.split("/d/")[1].split("/")[0].strip()
+        export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
+        
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            response = client.get(export_url, headers={"Accept": "text/plain"})
+            response.raise_for_status()
+            
+            text = response.text.replace("\r\n", "\n").replace("\xa0", " ").strip()
+            if not text:
+                raise ValueError("Empty document")
+            
+            return text
+    except Exception as e:
+        logger.warning(f"Failed to load personality from Google Docs: {e}")
+        return FALLBACK_PERSONALITY
 
-try:
-    _URL = _build_export_url(ALINA_DOC_URL)
-    _TXT = _fetch_gdoc_text(_URL)
-    if not _TXT:
-        raise ValueError("Пустой текст из Google Docs")
-    ALINA_PERSONALITY = _TXT
-    logger.info("ALINA_PERSONALITY загружен из Google Docs")
-except Exception as e:
-    logger.warning(f"Не удалось загрузить личность из Google Docs: {e}")
-    ALINA_PERSONALITY = _FALLBACK_PERSONALITY
 
-print(ALINA_PERSONALITY)
+# Load personality on module import
+ALINA_PERSONALITY = _fetch_personality_from_gdocs(ALINA_DOC_URL)
 
-# Контекстные модификаторы настроения
+# Mood modifiers for context
 MOOD_CONTEXTS = {
     "morning": "только проснулась, хочу кофе и тишину",
-    "work": "на работе, могу отвлекаться", 
+    "work": "на работе, могу отвлекаться",
     "evening": "дома, расслабленная",
     "night": "сонная или философское настроение",
     "tired": "устала, отвечаю короче",
@@ -51,17 +52,15 @@ MOOD_CONTEXTS = {
     "sad": "грустно, хочется поддержки"
 }
 
+
 def enrich_prompt(base_prompt: str, context: Optional[Dict] = None) -> str:
-    """
-    Добавляет минимальный контекст к промпту.
-    Меньше модификаций = больше естественности.
-    """
+    """Add contextual information to personality prompt"""
     if not context:
         return base_prompt
     
     additions = []
     
-    # Время суток
+    # Time of day context
     hour = context.get('hour')
     if hour is not None:
         if 5 <= hour < 9:
@@ -73,29 +72,26 @@ def enrich_prompt(base_prompt: str, context: Optional[Dict] = None) -> str:
         else:
             additions.append(MOOD_CONTEXTS["night"])
     
-    # Настроение (рандомное или из контекста)
+    # Mood context
     mood = context.get('mood')
     if mood and mood in MOOD_CONTEXTS:
         additions.append(MOOD_CONTEXTS[mood])
     
-    # История негатива
+    # User behavior context
     if context.get('negative_count', 0) > 2:
         additions.append("пользователь достал, можешь послать")
     
-    # Добавляем к промпту
     if additions:
-        return base_prompt + f"\n\nСейчас: {'. '.join(additions)}"
+        return f"{base_prompt}\n\nСейчас: {'. '.join(additions)}"
     
     return base_prompt
 
-def get_spam_response(count: int) -> str:
-    """Возвращает реакцию на спам."""
-    if count == 1:
-        return "это уже было"
-    elif count == 2:
-        return "ты застрял?"
-    elif count == 3:
-        return "..."
-    else:
-        return "пока"
 
+def get_spam_response(count: int) -> str:
+    """Get response for repeated/spam messages"""
+    responses = {
+        1: "это уже было",
+        2: "ты застрял?",
+        3: "...",
+    }
+    return responses.get(count, "пока")

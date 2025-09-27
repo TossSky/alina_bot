@@ -7,18 +7,31 @@ __pycache__/
 venv/
 env/
 ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
 # Environment
 .env
-*.env
+.env.local
+.env.*.local
 
 # Database
 *.db
 *.sqlite
 *.sqlite3
-
-# Logs
-*.log
 
 # IDE
 .vscode/
@@ -26,10 +39,24 @@ ENV/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
-Thumbs.db
 
-# Archive (наши архивированные файлы)
-.archive_*
+# Logs
+*.log
+logs/
+
+# User data
+user_data/
+chat_history/
+mcp_data/
+
+# Backups
+*.bak
+*.backup
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
