@@ -191,15 +191,26 @@ class AlinaBot:
 
         
         # Add warning if approaching limits
-        warning = await self._get_limit_warning(user_id, tokens_net)
-        
-        # Send response and save to DB
-        await update.message.reply_text(
-            response_text + warning,
-            parse_mode=ParseMode.MARKDOWN if warning else None
-        )
+        # Отправляем только ответ бота — без предупреждений
+        await update.message.reply_text(response_text)
+
         
         self.db.add_message(user_id, "assistant", response_text, tokens_net)
+
+        # Если подписки нет и по итогу ЭТОГО сообщения лимит пробит — отдельное уведомление
+        if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
+            usage = self.db.get_user_usage(user_id)
+            if (usage["messages"] >= self.config.free_messages_limit) or (usage["tokens"] >= self.config.free_tokens_limit):
+                limit_msg = ""
+
+                await update.message.reply_text(
+                    f"❌ Вы достигли лимита бесплатного использования:\n\n{limit_msg}\n"
+                    "Для продолжения общения необходима подписка.\n"
+                    "Используйте /subscribe для оформления.",
+                    reply_markup=self.subscription_manager.get_subscription_keyboard()
+                )
+
+
         logger.info(f"Alina: {response_text[:50]}... (net_tokens: {tokens_net})")
     
     async def _check_limits(self, user_id: int, update: Update) -> bool:
@@ -222,25 +233,6 @@ class AlinaBot:
             return False
         return True
     
-    async def _get_limit_warning(self, user_id: int, tokens_used: int) -> str:
-        """Generate warning message if approaching limits"""
-        if not self.config.subscription_required or self.subscription_manager.has_active_subscription(user_id):
-            return ""
-        
-        usage = self.db.get_user_usage(user_id)
-        messages_left = self.config.free_messages_limit - usage["messages"] - 1
-        tokens_left = self.config.free_tokens_limit - usage["tokens"] - tokens_used
-        
-        if messages_left <= 3 or tokens_left <= 500:
-            warning = "\n\n_⚠️ Лимиты бесплатного использования:_\n"
-            if messages_left <= 3:
-                warning += f"_💬 Осталось сообщений: {messages_left}_\n"
-            if tokens_left <= 500:
-                warning += f"_🎯 Осталось токенов: {max(0, tokens_left)}_\n"
-            if messages_left <= 0 or tokens_left <= 0:
-                warning += "_\n🔴 Это было ваше последнее бесплатное сообщение! /subscribe_"
-            return warning
-        return ""
     
     def run(self) -> None:
         """Start the bot application"""
