@@ -180,12 +180,15 @@ class AlinaBot:
         total_est = self.llm.count_tokens_messages(messages)
         logger.info(f"Context: sys={sys_tokens}, hist={hist_tokens}, total={total_est}")
         
-        # Generate response
-        response_text, tokens_total = await self.llm.generate_response(messages)
-        response_text = response_text.strip() or "Хм, не уверена, что поняла."
-        
-        # Calculate net tokens (without system prompt)
-        tokens_net = max(0, tokens_total - sys_tokens)
+        # Генерация ответа
+        response_text, _ = await self.llm.generate_response(messages)
+        response_text = (response_text or "").strip() or "Хм, не уверена, что поняла."
+
+        # Считаем лимит ТОЛЬКО по текущему user и текущему ответу бота
+        user_tokens_now = self.llm.count_tokens_text(user_message)
+        output_tokens_now = self.llm.count_tokens_text(response_text)
+        tokens_used_net = user_tokens_now + output_tokens_now
+
         
         # Add warning if approaching limits
         warning = await self._get_limit_warning(user_id, tokens_net)
