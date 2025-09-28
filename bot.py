@@ -203,9 +203,9 @@ class AlinaBot:
             if (usage["messages"] >= self.config.free_messages_limit) or (usage["tokens"] >= self.config.free_tokens_limit):
 
                 await update.message.reply_text(
-                    "<pre>⚠️ Вы исчерпали бесплатный лимит сообщений</pre>\n\n"
+                    "⚠️ `Вы исчерпали бесплатный лимит сообщений`\n\n"
                     "🌟 Для продолжения общения подключите /subscribe",
-                    parse_mode=ParseMode.HTML,
+                    parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=self.subscription_manager.get_subscription_keyboard()
                 )
 
@@ -219,11 +219,11 @@ class AlinaBot:
         if usage["messages"] >= self.config.free_messages_limit or usage["tokens"] >= self.config.free_tokens_limit:
             
             await update.message.reply_text(
-                "<pre>⚠️ Вы исчерпали бесплатный лимит сообщений</pre>\n\n"
-                "🌟 Для продолжения общения подключите /subscribe",
-                parse_mode=ParseMode.HTML,
-                reply_markup=self.subscription_manager.get_subscription_keyboard()
-            )
+                    "⚠️ `Вы исчерпали бесплатный лимит сообщений`\n\n"
+                    "🌟 Для продолжения общения подключите /subscribe",
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=self.subscription_manager.get_subscription_keyboard()
+                )
             return False
         return True
     
