@@ -187,7 +187,7 @@ class AlinaBot:
         # Считаем лимит ТОЛЬКО по текущему user и текущему ответу бота
         user_tokens_now = self.llm.count_tokens_text(user_message)
         output_tokens_now = self.llm.count_tokens_text(response_text)
-        tokens_used_net = user_tokens_now + output_tokens_now
+        tokens_net = user_tokens_now + output_tokens_now
 
         
         # Add warning if approaching limits
