@@ -245,7 +245,12 @@ class AlinaBot:
             logger.error("Missing required configuration!")
             return
         
-        app = Application.builder().token(self.config.telegram_bot_token).build()
+        app = (Application
+            .builder()
+            .token(self.config.telegram_bot_token)
+            .concurrent_updates(False)   # последовательно — меньше шанс лока БД
+            .build())
+
         app.bot_data['subscription_manager'] = self.subscription_manager
         
         # Register handlers

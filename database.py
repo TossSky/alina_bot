@@ -19,8 +19,16 @@ class DialogueDB:
     
     @contextmanager
     def _get_connection(self):
-        """Context manager for database connections"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(
+            self.db_path,
+            timeout=10.0,              # ждём до 10с, вместо немедленной ошибки
+            check_same_thread=False    # разрешаем использовать соединение из разных потоков
+        )
+        # мягкие режимы для параллельных чтений/коротких транзакций
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")  # мс
+
         try:
             yield conn
             conn.commit()
@@ -29,6 +37,7 @@ class DialogueDB:
             raise e
         finally:
             conn.close()
+
     
     def init_db(self):
         """Initialize database tables"""
@@ -126,9 +135,14 @@ class DialogueDB:
                     (tokens_used, user_id)
                 )
             
-            # Periodic cleanup
+            # Periodic cleanup (редко и не валим хэндлер при ошибке БД)
             if role == "user":
-                self._cleanup_old_messages(user_id)
+                try:
+                    import random
+                    if random.random() < 0.1:  # ~10% сообщений запускают чистку
+                        self._cleanup_old_messages(user_id)
+                except Exception as e:
+                    logger.warning(f"Cleanup skipped due to: {e}")
     
     def get_dialogue_history(self, user_id: int, limit: int = 20) -> List[Dict[str, str]]:
         """Get conversation history for user"""
@@ -205,15 +219,17 @@ class DialogueDB:
             
             cursor.execute("SELECT COUNT(*) FROM messages WHERE user_id = ?", (user_id,))
             count = cursor.fetchone()[0]
-            
-            if count > keep_last * 1.5:
+
+            to_delete = max(0, count - keep_last)
+            if to_delete > 0:
                 cursor.execute("""
-                    DELETE FROM messages 
-                    WHERE user_id = ? AND id NOT IN (
-                        SELECT id FROM messages 
-                        WHERE user_id = ? 
-                        ORDER BY timestamp DESC LIMIT ?
+                    DELETE FROM messages
+                    WHERE id IN (
+                        SELECT id FROM messages
+                        WHERE user_id = ?
+                        ORDER BY timestamp ASC
+                        LIMIT ?
                     )
-                """, (user_id, user_id, keep_last))
-                
-                logger.info(f"Cleaned up old messages for user {user_id}")
+                """, (user_id, to_delete))
+                logger.info(f"Cleaned {to_delete} old messages for user {user_id}")
+
