@@ -203,7 +203,7 @@ class AlinaBot:
             if (usage["messages"] >= self.config.free_messages_limit) or (usage["tokens"] >= self.config.free_tokens_limit):
 
                 await update.message.reply_text(
-                    f"😔 Вы достигли лимита бесплатного использования 😔\n\n"
+                    f"Вы достигли лимита бесплатного использования 😔\n\n"
                     "Для продолжения общения необходима подписка.\n"
                     "Используйте /subscribe для оформления.",
                     reply_markup=self.subscription_manager.get_subscription_keyboard()
@@ -217,14 +217,9 @@ class AlinaBot:
         usage = self.db.get_user_usage(user_id)
         
         if usage["messages"] >= self.config.free_messages_limit or usage["tokens"] >= self.config.free_tokens_limit:
-            limit_msg = ""
-            if usage["messages"] >= self.config.free_messages_limit:
-                limit_msg = f"💬 Использовано сообщений: {usage['messages']}/{self.config.free_messages_limit}\n"
-            if usage["tokens"] >= self.config.free_tokens_limit:
-                limit_msg += f"🎯 Использовано токенов: {usage['tokens']}/{self.config.free_tokens_limit}\n"
             
             await update.message.reply_text(
-                f"❌ Вы достигли лимита бесплатного использования:\n\n{limit_msg}\n"
+                f"Вы достигли лимита бесплатного использования 😔\n\n"
                 "Для продолжения общения необходима подписка.\n"
                 "Используйте /subscribe для оформления.",
                 reply_markup=self.subscription_manager.get_subscription_keyboard()
