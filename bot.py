@@ -140,19 +140,19 @@ class AlinaBot:
         context.user_data['faq_page'] = 0
         context.user_data['in_faq_mode'] = True
         
-        # Показываем первую страницу
-        await self._show_faq_page_reply(update.message, context, page=0)
+        # Показываем клавиатуру (БЕЗ текстового сообщения)
+        await self._show_faq_keyboard(update.message, context, page=0)
         logger.info(f"FAQ shown to user {update.effective_user.id}")
     
-    async def _show_faq_page_reply(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
-        """Показать страницу FAQ с Reply Keyboard"""
+    async def _show_faq_keyboard(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+        """Показать клавиатуру FAQ (БЕЗ сообщения)"""
         faq_items = context.user_data.get('faq_items', [])
         
         if not faq_items:
             return
         
-        # Пагинация: 7 вопросов на страницу
-        items_per_page = 7
+        # Пагинация: 6 вопросов на страницу
+        items_per_page = 6
         total_pages = (len(faq_items) + items_per_page - 1) // items_per_page
         page = max(0, min(page, total_pages - 1))
         context.user_data['faq_page'] = page
@@ -161,17 +161,27 @@ class AlinaBot:
         end_idx = min(start_idx + items_per_page, len(faq_items))
         page_items = faq_items[start_idx:end_idx]
         
-        # Простой текст
-        text = f"📚 *Часто задаваемые вопросы*\n\n📖 Страница {page + 1}/{total_pages}"
-        
-        # Создаем Reply Keyboard с вопросами
+        # Создаем Reply Keyboard с вопросами (по 2-3 в ряду)
         keyboard = []
+        row = []
         
-        # Каждый вопрос на отдельной кнопке
         for question, _ in page_items:
-            # Укорачиваем вопрос если он слишком длинный (макс 64 символа для кнопки)
-            button_text = question[:64] if len(question) <= 64 else question[:61] + "..."
-            keyboard.append([KeyboardButton(button_text)])
+            # Укорачиваем вопрос если он слишком длинный
+            button_text = question
+            if len(button_text.encode('utf-8')) > 64:
+                # Обрезаем по байтам для безопасности
+                button_text = question[:55] + "..."
+            
+            row.append(KeyboardButton(button_text))
+            
+            # По 2 кнопки в ряду (можно менять на 3)
+            if len(row) == 3:
+                keyboard.append(row)
+                row = []
+        
+        # Добавляем остаток
+        if row:
+            keyboard.append(row)
         
         # Кнопки навигации
         nav_row = []
@@ -183,15 +193,12 @@ class AlinaBot:
             keyboard.append(nav_row)
         
         # Кнопка закрытия
-        keyboard.append([KeyboardButton("❌ Закрыть FAQ")])
+        keyboard.append([KeyboardButton("❌ Закрыть")])
         
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
         
-        await message.reply_text(
-            text,
-            reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
-        )
+        # Отправляем ТОЛЬКО клавиатуру, без текста
+        await message.reply_text(".", reply_markup=reply_markup)
     
     async def handle_faq_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработка нажатий на кнопки FAQ"""
@@ -204,38 +211,40 @@ class AlinaBot:
         
         # Навигация
         if text == "⬅️ Назад":
-            await self._show_faq_page_reply(update.message, context, page - 1)
+            await self._show_faq_keyboard(update.message, context, page - 1)
             return
         elif text == "Вперёд ➡️":
-            await self._show_faq_page_reply(update.message, context, page + 1)
+            await self._show_faq_keyboard(update.message, context, page + 1)
             return
-        elif text == "❌ Закрыть FAQ":
+        elif text in ["❌ Закрыть", "❌ Закрыть FAQ"]:
             context.user_data['in_faq_mode'] = False
-            await update.message.reply_text(
-                "👋 FAQ закрыт. Можешь писать мне как обычно!",
-                reply_markup=ReplyKeyboardRemove()
-            )
+            # Просто убираем клавиатуру БЕЗ сообщения
+            await update.message.reply_text(".", reply_markup=ReplyKeyboardRemove())
             return
         elif text == "⬅️ Назад к FAQ":
             # Возврат к списку вопросов
-            await self._show_faq_page_reply(update.message, context, page)
+            await self._show_faq_keyboard(update.message, context, page)
             return
         
         # Проверяем, это вопрос из текущей страницы
-        items_per_page = 7
+        items_per_page = 6
         start_idx = page * items_per_page
         end_idx = min(start_idx + items_per_page, len(faq_items))
         page_items = faq_items[start_idx:end_idx]
         
-        # Ищем вопрос по совпадению текста (учитываем укорачивание)
-        for idx, (question, answer) in enumerate(page_items):
-            button_text = question[:64] if len(question) <= 64 else question[:61] + "..."
-            if text == button_text:
-                # Показываем ответ
+        # Ищем вопрос по совпадению текста
+        for question, answer in page_items:
+            # Проверяем как полный вопрос, так и сокращённый
+            button_text = question
+            if len(button_text.encode('utf-8')) > 64:
+                button_text = question[:55] + "..."
+            
+            if text == button_text or text == question:
+                # Показываем ТОЛЬКО ответ
                 response_text = f"*{question}*\n\n{answer}"
                 
                 # Клавиатура с кнопкой возврата
-                keyboard = [[KeyboardButton("⬅️ Назад к FAQ")], [KeyboardButton("❌ Закрыть FAQ")]]
+                keyboard = [[KeyboardButton("⬅️ Назад к FAQ")], [KeyboardButton("❌ Закрыть")]]
                 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
                 
                 await update.message.reply_text(
