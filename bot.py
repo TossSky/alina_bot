@@ -175,7 +175,7 @@ class AlinaBot:
             row.append(KeyboardButton(button_text))
             
             # По 2 кнопки в ряду (можно менять на 3)
-            if len(row) == 3:
+            if len(row) == 2:
                 keyboard.append(row)
                 row = []
         
