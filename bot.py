@@ -226,7 +226,6 @@ class AlinaBot:
             return True
         elif text in ["❌ Закрыть", "❌ Закрыть FAQ"]:
             context.user_data['in_faq_mode'] = False
-            await update.message.reply_text("✅ FAQ закрыт", reply_markup=ReplyKeyboardRemove())
             return True
         elif text == "⬅️ Назад к FAQ":
             await self._show_faq_keyboard(update.message, context, page)
