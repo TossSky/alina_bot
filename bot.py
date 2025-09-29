@@ -168,12 +168,12 @@ class AlinaBot:
         for question, _ in page_items:
             # Умное укорачивание - режем по словам если слишком длинно
             button_text = question
-            max_length = 80  # Максимальная длина для читабельности
+            # max_length = 80  # Максимальная длина для читабельности
             
-            if len(button_text) > max_length:
-                # Обрезаем по словам
-                words = button_text[:max_length].rsplit(' ', 1)
-                button_text = words[0] + "..."
+            # if len(button_text) > max_length:
+            #     # Обрезаем по словам
+            #     words = button_text[:max_length].rsplit(' ', 1)
+            #     button_text = words[0] + "..."
             
             row.append(KeyboardButton(button_text))
             
@@ -231,7 +231,7 @@ class AlinaBot:
             return
         
         # Проверяем, это вопрос из текущей страницы
-        items_per_page = 6
+        items_per_page = 3
         start_idx = page * items_per_page
         end_idx = min(start_idx + items_per_page, len(faq_items))
         page_items = faq_items[start_idx:end_idx]
@@ -248,7 +248,7 @@ class AlinaBot:
             
             if text == button_text or text == question:
                 # Формируем ответ: вопрос пользователя + ответ без дополнительных префиксов
-                response_text = f"{answer}"
+                response_text = f"❓ Вы: {question}\n\n{answer}"
                 
                 # Клавиатура с кнопкой возврата
                 keyboard = [[KeyboardButton("⬅️ Назад к FAQ")], [KeyboardButton("❌ Закрыть")]]
