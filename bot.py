@@ -152,7 +152,7 @@ class AlinaBot:
             return
         
         # Пагинация: 6 вопросов на страницу
-        items_per_page = 6
+        items_per_page = 3
         total_pages = (len(faq_items) + items_per_page - 1) // items_per_page
         page = max(0, min(page, total_pages - 1))
         context.user_data['faq_page'] = page
@@ -178,7 +178,7 @@ class AlinaBot:
             row.append(KeyboardButton(button_text))
             
             # По 2 кнопки в ряду
-            if len(row) == 2:
+            if len(row) == 1:
                 keyboard.append(row)
                 row = []
         
