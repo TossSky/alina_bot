@@ -335,7 +335,7 @@ class AlinaBot:
         tokens_net = user_tokens_now + output_tokens_now
 
         # Формируем полное сообщение: вопрос пользователя + ответ Алины
-        full_response = f"❓ Вы: {user_message}\n\n💬 Алина: {response_text}"
+        full_response = f"❓ {user_message}\n\n💬 Алина: {response_text}"
         await update.message.reply_text(full_response)
 
         
