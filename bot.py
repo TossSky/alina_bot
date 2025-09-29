@@ -140,12 +140,12 @@ class AlinaBot:
         context.user_data['faq_page'] = 0
         context.user_data['in_faq_mode'] = True
         
-        # Показываем клавиатуру (БЕЗ текстового сообщения)
+        # Показываем клавиатуру
         await self._show_faq_keyboard(update.message, context, page=0)
         logger.info(f"FAQ shown to user {update.effective_user.id}")
     
-    async def _show_faq_keyboard(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
-        """Показать клавиатуру FAQ (БЕЗ сообщения)"""
+    async def _show_faq_keyboard(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, silent: bool = False):
+        """Показать клавиатуру FAQ"""
         faq_items = context.user_data.get('faq_items', [])
         
         if not faq_items:
@@ -161,20 +161,23 @@ class AlinaBot:
         end_idx = min(start_idx + items_per_page, len(faq_items))
         page_items = faq_items[start_idx:end_idx]
         
-        # Создаем Reply Keyboard с вопросами (по 2-3 в ряду)
+        # Создаем Reply Keyboard с вопросами (по 2 в ряду)
         keyboard = []
         row = []
         
         for question, _ in page_items:
-            # Укорачиваем вопрос если он слишком длинный
+            # Умное укорачивание - режем по словам если слишком длинно
             button_text = question
-            if len(button_text.encode('utf-8')) > 64:
-                # Обрезаем по байтам для безопасности
-                button_text = question[:55] + "..."
+            max_length = 35  # Максимальная длина для читабельности
+            
+            if len(button_text) > max_length:
+                # Обрезаем по словам
+                words = button_text[:max_length].rsplit(' ', 1)
+                button_text = words[0] + "..."
             
             row.append(KeyboardButton(button_text))
             
-            # По 2 кнопки в ряду (можно менять на 3)
+            # По 2 кнопки в ряду
             if len(row) == 2:
                 keyboard.append(row)
                 row = []
@@ -197,8 +200,8 @@ class AlinaBot:
         
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
         
-        # Отправляем ТОЛЬКО клавиатуру, без текста
-        await message.reply_text(".", reply_markup=reply_markup)
+        # Используем невидимый символ (zero-width space)
+        await message.reply_text("​", reply_markup=reply_markup)
     
     async def handle_faq_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработка нажатий на кнопки FAQ"""
@@ -218,8 +221,8 @@ class AlinaBot:
             return
         elif text in ["❌ Закрыть", "❌ Закрыть FAQ"]:
             context.user_data['in_faq_mode'] = False
-            # Просто убираем клавиатуру БЕЗ сообщения
-            await update.message.reply_text(".", reply_markup=ReplyKeyboardRemove())
+            # Просто убираем клавиатуру
+            await update.message.reply_text("​", reply_markup=ReplyKeyboardRemove())
             return
         elif text == "⬅️ Назад к FAQ":
             # Возврат к списку вопросов
@@ -234,10 +237,13 @@ class AlinaBot:
         
         # Ищем вопрос по совпадению текста
         for question, answer in page_items:
-            # Проверяем как полный вопрос, так и сокращённый
+            # Умное укорачивание
             button_text = question
-            if len(button_text.encode('utf-8')) > 64:
-                button_text = question[:55] + "..."
+            max_length = 35
+            
+            if len(button_text) > max_length:
+                words = button_text[:max_length].rsplit(' ', 1)
+                button_text = words[0] + "..."
             
             if text == button_text or text == question:
                 # Показываем ТОЛЬКО ответ
