@@ -237,14 +237,21 @@ class AlinaBot:
         page_items = faq_items[start_idx:end_idx]
         
         # Ищем вопрос по совпадению текста
+        # Очищаем текст от невидимых символов
+        def clean_text(s):
+            # Удаляем BOM, zero-width символы и прочие невидимые символы
+            return s.replace('\ufeff', '').replace('\u200d', '').replace('\u200b', '').strip()
+        
+        text_clean = clean_text(text)
         logger.info(f"FAQ: Searching for button text: '{text}'")
-        logger.info(f"FAQ: Button text length: {len(text)}")
-        logger.info(f"FAQ: Button text repr: {repr(text)}")
+        logger.info(f"FAQ: Cleaned text: '{text_clean}'")
         logger.info(f"FAQ: Page {page}, items count: {len(page_items)}")
         
         for idx, (question, answer) in enumerate(page_items):
             # Умное укорачивание
             button_text = question
+            button_text_clean = clean_text(button_text)
+            question_clean = clean_text(question)
             # max_length = 80
             
             # if len(button_text) > max_length:
@@ -252,11 +259,10 @@ class AlinaBot:
             #     button_text = words[0] + "..."
             
             logger.info(f"FAQ: Checking item {idx}: button='{button_text}', question='{question[:50]}...'")
-            logger.info(f"FAQ: Item {idx} lengths: button={len(button_text)}, question={len(question)}")
-            logger.info(f"FAQ: Item {idx} repr: button={repr(button_text)}, question={repr(question[:50])}")
-            logger.info(f"FAQ: Item {idx} match check: text==button_text: {text == button_text}, text==question: {text == question}")
+            logger.info(f"FAQ: Item {idx} cleaned: button='{button_text_clean}', question='{question_clean[:50]}'")
+            logger.info(f"FAQ: Item {idx} match check: text_clean==button_text_clean: {text_clean == button_text_clean}, text_clean==question_clean: {text_clean == question_clean}")
             
-            if text == button_text or text == question:
+            if text_clean == button_text_clean or text_clean == question_clean:
                 logger.info(f"FAQ: MATCH FOUND for item {idx}!")
                 # Формируем ответ: вопрос пользователя + ответ без дополнительных префиксов
                 response_text = f"❓ {question}\n\n{answer}"
