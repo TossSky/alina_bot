@@ -149,16 +149,15 @@ class AlinaBot:
             await update.message.reply_text("❌ FAQ пуст. Попробуйте позже.")
             return
         
-        
         # Сохраняем FAQ в user_data
         context.user_data['faq_items'] = faq_items
         context.user_data['faq_page'] = 0
         
-        # Показываем Inline клавиатуру
-        await self._show_faq_inline(loading_msg, context, page=0)
+        # Показываем Inline клавиатуру (с удалением старой Reply Keyboard)
+        await self._show_faq_inline(update.message, context, page=0, remove_reply_keyboard=True)
         logger.info(f"FAQ shown to user {update.effective_user.id}")
     
-    async def _show_faq_inline(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, edit: bool = False):
+    async def _show_faq_inline(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, edit: bool = False, remove_reply_keyboard: bool = False):
         """Показать Inline клавиатуру FAQ"""
         faq_items = context.user_data.get('faq_items', [])
         
@@ -207,7 +206,26 @@ class AlinaBot:
         if edit:
             await message.edit_text(faq_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
         else:
-            await message.reply_text(faq_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+            # Если нужно убрать старую Reply Keyboard
+            if remove_reply_keyboard:
+                # Отправляем FAQ с Inline клавиатурой
+                await message.reply_text(
+                    faq_text,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                # Отправляем техническое сообщение для удаления Reply Keyboard
+                remove_msg = await message.reply_text(
+                    ".",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+                # Сразу удаляем это техническое сообщение
+                try:
+                    await remove_msg.delete()
+                except Exception:
+                    pass
+            else:
+                await message.reply_text(faq_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     
     async def handle_faq_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработка нажатий на Inline кнопки FAQ"""
