@@ -95,10 +95,9 @@ class GoogleDocsService:
             if not line:
                 continue  # Пропускаем пустые строки
             
-            # Заголовок FAQ
+            # Заголовок FAQ - игнорируем
             if line.startswith("**FAQ**") or line == "FAQ":
-                formatted_lines.append("*FAQ*\n")
-                continue
+                continue  # Пропускаем заголовок
             
             # Вопросы (начинаются с эмодзи)
             if line and line[0] in "🕵️🤖💃👥👀💬✍️":
