@@ -247,8 +247,8 @@ class AlinaBot:
                 button_text = words[0] + "..."
             
             if text == button_text or text == question:
-                # Показываем ТОЛЬКО ответ
-                response_text = f"*{question}*\n\n{answer}"
+                # Формируем ответ в том же формате, что и обычные сообщения
+                response_text = f"❓ Вы: {question}\n\n💬 Алина: {answer}"
                 
                 # Клавиатура с кнопкой возврата
                 keyboard = [[KeyboardButton("⬅️ Назад к FAQ")], [KeyboardButton("❌ Закрыть")]]
@@ -256,8 +256,7 @@ class AlinaBot:
                 
                 await update.message.reply_text(
                     response_text,
-                    reply_markup=reply_markup,
-                    parse_mode=ParseMode.MARKDOWN
+                    reply_markup=reply_markup
                 )
                 return
     
