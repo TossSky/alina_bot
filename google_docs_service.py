@@ -159,7 +159,7 @@ class GoogleDocsService:
         
         while True:
             try:
-                await asyncio.sleep(60)  # Обновление каждую минуту
+                await asyncio.sleep(10)  # Обновление каждую минуту
                 
                 logger.debug("Running periodic update...")
                 await self.update_faq()
