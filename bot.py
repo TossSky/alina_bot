@@ -5,7 +5,7 @@ import os
 import sys
 from typing import Dict, List
 
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -128,7 +128,7 @@ class AlinaBot:
             )
     
     async def faq(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /faq command - show interactive FAQ with reply keyboard"""
+        """Handle /faq command - show interactive FAQ with inline keyboard"""
         faq_items = self.docs_service.parse_faq_items()
         
         if not faq_items:
@@ -138,20 +138,19 @@ class AlinaBot:
         # Сохраняем FAQ в user_data
         context.user_data['faq_items'] = faq_items
         context.user_data['faq_page'] = 0
-        context.user_data['in_faq_mode'] = True
         
-        # Показываем клавиатуру
-        await self._show_faq_keyboard(update.message, context, page=0)
+        # Показываем Inline клавиатуру
+        await self._show_faq_inline(update.message, context, page=0)
         logger.info(f"FAQ shown to user {update.effective_user.id}")
     
-    async def _show_faq_keyboard(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, silent: bool = False):
-        """Показать клавиатуру FAQ"""
+    async def _show_faq_inline(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, edit: bool = False):
+        """Показать Inline клавиатуру FAQ"""
         faq_items = context.user_data.get('faq_items', [])
         
         if not faq_items:
             return
         
-        # Пагинация: 6 вопросов на страницу
+        # Пагинация: 3 вопроса на страницу
         items_per_page = 3
         total_pages = (len(faq_items) + items_per_page - 1) // items_per_page
         page = max(0, min(page, total_pages - 1))
@@ -161,127 +160,78 @@ class AlinaBot:
         end_idx = min(start_idx + items_per_page, len(faq_items))
         page_items = faq_items[start_idx:end_idx]
         
-        # Создаем Reply Keyboard с вопросами (по 2 в ряду)
+        # Создаем Inline Keyboard с вопросами (по 1 в строку)
         keyboard = []
-        row = []
         
-        for question, _ in page_items:
-            # Умное укорачивание - режем по словам если слишком длинно
+        for idx, (question, _) in enumerate(page_items):
             button_text = question
-            # max_length = 80  # Максимальная длина для читабельности
-            
-            # if len(button_text) > max_length:
-            #     # Обрезаем по словам
-            #     words = button_text[:max_length].rsplit(' ', 1)
-            #     button_text = words[0] + "..."
-            
-            row.append(KeyboardButton(button_text))
-            
-            # По 2 кнопки в ряду
-            if len(row) == 1:
-                keyboard.append(row)
-                row = []
+            callback_data = f"faq_q_{start_idx + idx}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
         
-        # Добавляем остаток
-        if row:
-            keyboard.append(row)
-        
-        # Кнопки навигации
+        # Кнопки навигации (4-я строка)
         nav_row = []
         if page > 0:
-            nav_row.append(KeyboardButton("⬅️ Назад"))
+            nav_row.append(InlineKeyboardButton("◀️ Назад", callback_data="faq_prev"))
+        else:
+            nav_row.append(InlineKeyboardButton("⠀", callback_data="faq_noop"))  # Пустая кнопка
+        
+        nav_row.append(InlineKeyboardButton("❌", callback_data="faq_close"))
+        
         if page < total_pages - 1:
-            nav_row.append(KeyboardButton("Вперёд ➡️"))
-        if nav_row:
-            keyboard.append(nav_row)
+            nav_row.append(InlineKeyboardButton("Вперёд ▶️", callback_data="faq_next"))
+        else:
+            nav_row.append(InlineKeyboardButton("⠀", callback_data="faq_noop"))  # Пустая кнопка
         
-        # Кнопка закрытия
-        keyboard.append([KeyboardButton("❌ Закрыть")])
+        keyboard.append(nav_row)
         
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Показываем FAQ с нормальным текстом
-        faq_text = f"📖 *FAQ - Частые вопросы*\n\nВыберите интересующий вас вопрос:\nСтраница {page + 1} из {total_pages}"
-        await message.reply_text(faq_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+        # Показываем FAQ
+        faq_text = f"📖 *FAQ - Частые вопросы*\n\nВыберите интересующий вас вопрос\nСтраница {page + 1} из {total_pages}"
+        
+        if edit:
+            await message.edit_text(faq_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await message.reply_text(faq_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     
-    async def handle_faq_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-        """Обработка нажатий на кнопки FAQ.
-        Возвращает:
-        True  - если сообщение обработано внутри FAQ (навигация/показ ответа/явное закрытие)
-        False - если введённый текст НЕ относится к FAQ: FAQ закрывается и сообщение идёт в обычный обработчик
-        """
-        if not context.user_data.get('in_faq_mode'):
-            return False
-
-        text = update.message.text
+    async def handle_faq_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработка нажатий на Inline кнопки FAQ"""
+        query = update.callback_query
+        await query.answer()
+        
+        data = query.data
         faq_items = context.user_data.get('faq_items', [])
         page = context.user_data.get('faq_page', 0)
-
+        
         # Навигация
-        if text == "⬅️ Назад":
-            await self._show_faq_keyboard(update.message, context, page - 1)
-            return True
-        elif text == "Вперёд ➡️":
-            await self._show_faq_keyboard(update.message, context, page + 1)
-            return True
-        elif text in ["❌ Закрыть", "❌ Закрыть FAQ"]:
-            context.user_data['in_faq_mode'] = False
-            msg = await update.message.reply_text(
-                "✅ FAQ закрыт. Продолжаем диалог.",
-                reply_markup=ReplyKeyboardRemove()
-            )
-            try:
-                await msg.delete()
-            except Exception as e:
-                logger.warning(f"Не удалось удалить сообщение о закрытии FAQ: {e}")
-            return True
-        elif text == "⬅️ Назад к FAQ":
-            await self._show_faq_keyboard(update.message, context, page)
-            return True
-
-        # Проверяем, это вопрос из текущей страницы
-        items_per_page = 3
-        start_idx = page * items_per_page
-        end_idx = min(start_idx + items_per_page, len(faq_items))
-        page_items = faq_items[start_idx:end_idx]
-
-        def clean_text(s: str) -> str:
-            return s.replace('\ufeff', '').replace('\u200d', '').replace('\u200b', '').strip()
-
-        text_clean = clean_text(text)
-        logger.info(f"FAQ: Searching for button text: '{text}'")
-        logger.info(f"FAQ: Cleaned text: '{text_clean}'")
-        logger.info(f"FAQ: Page {page}, items count: {len(page_items)}")
-
-        for idx, (question, answer) in enumerate(page_items):
-            button_text = question
-            button_text_clean = clean_text(button_text)
-            question_clean = clean_text(question)
-
-            logger.info(f"FAQ: Checking item {idx}: button='{button_text}', question='{question[:50]}...'")
-            logger.info(f"FAQ: Item {idx} cleaned: button='{button_text_clean}', question='{question_clean[:50]}'")
-            logger.info(f"FAQ: Item {idx} match check: text_clean==button_text_clean: {text_clean == button_text_clean}, text_clean==question_clean: {text_clean == question_clean}")
-
-            if text_clean == button_text_clean or text_clean == question_clean:
-                logger.info(f"FAQ: MATCH FOUND for item {idx}!")
-                response_text = f"❓ {question}\n\n{answer}"
-                keyboard = [[KeyboardButton("⬅️ Назад к FAQ")], [KeyboardButton("❌ Закрыть")]]
-                reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-                await update.message.reply_text(response_text, reply_markup=reply_markup)
-                return True
-
-        # Если сюда дошли — пользователь ввёл текст, который НЕ является пунктом FAQ и не навигацией.
-        # Закрываем FAQ и возвращаем False, чтобы обычный обработчик продолжил диалог тем же сообщением.
-        context.user_data['in_faq_mode'] = False
-        msg = await update.message.reply_text(
-            "✅ FAQ закрыт. Продолжаем диалог.",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        try:
-            await msg.delete()
-        except Exception as e:
-            logger.warning(f"Не удалось удалить сообщение о закрытии FAQ: {e}")
-        return False
+        if data == "faq_prev":
+            await self._show_faq_inline(query.message, context, page - 1, edit=True)
+        elif data == "faq_next":
+            await self._show_faq_inline(query.message, context, page + 1, edit=True)
+        elif data == "faq_close":
+            await query.message.delete()
+            context.user_data.pop('faq_items', None)
+            context.user_data.pop('faq_page', None)
+        elif data == "faq_back":
+            # Возврат к списку вопросов
+            await self._show_faq_inline(query.message, context, page, edit=True)
+        elif data == "faq_noop":
+            # Пустая кнопка - ничего не делаем
+            pass
+        elif data.startswith("faq_q_"):
+            # Показываем ответ на вопрос
+            idx = int(data.split("_")[2])
+            if 0 <= idx < len(faq_items):
+                question, answer = faq_items[idx]
+                response_text = f"❓ *{question}*\n\n{answer}"
+                
+                keyboard = [
+                    [InlineKeyboardButton("◀️ Назад к FAQ", callback_data="faq_back")],
+                    [InlineKeyboardButton("❌ Закрыть", callback_data="faq_close")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.message.edit_text(response_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
     
     async def pre_checkout_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -319,14 +269,6 @@ class AlinaBot:
         
         if not user_message:
             return
-        
-        # Проверяем, не в режиме FAQ ли
-        if context.user_data.get('in_faq_mode'):
-            handled = await self.handle_faq_button(update, context)
-            # Если внутри FAQ мы обработали (навигация/ответ/закрытие) — выходим.
-            # Если ввод НЕ из FAQ — функция вернёт False, и мы продолжим обычную обработку сообщения.
-            if handled:
-                return
 
         
         # Check subscription limits if required
@@ -435,6 +377,7 @@ class AlinaBot:
             CommandHandler("subscribe", self.subscribe),
             CommandHandler("subscription", self.subscription_status),
             CommandHandler("faq", self.faq),
+            CallbackQueryHandler(self.handle_faq_callback, pattern="^faq_"),
             CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"),
             PreCheckoutQueryHandler(self.pre_checkout_callback),
             MessageHandler(filters.SUCCESSFUL_PAYMENT, self.successful_payment),
