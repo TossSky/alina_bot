@@ -243,11 +243,11 @@ class AlinaBot:
         for idx, (question, answer) in enumerate(page_items):
             # Умное укорачивание
             button_text = question
-            max_length = 80
+            # max_length = 80
             
-            if len(button_text) > max_length:
-                words = button_text[:max_length].rsplit(' ', 1)
-                button_text = words[0] + "..."
+            # if len(button_text) > max_length:
+            #     words = button_text[:max_length].rsplit(' ', 1)
+            #     button_text = words[0] + "..."
             
             logger.info(f"FAQ: Checking item {idx}: button='{button_text}', question='{question[:50]}...'")
             
