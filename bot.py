@@ -226,6 +226,7 @@ class AlinaBot:
             return True
         elif text in ["❌ Закрыть", "❌ Закрыть FAQ"]:
             context.user_data['in_faq_mode'] = False
+            await update.message.reply_text("✅ FAQ закрыт", reply_markup=ReplyKeyboardRemove())
             return True
         elif text == "⬅️ Назад к FAQ":
             await self._show_faq_keyboard(update.message, context, page)
@@ -265,6 +266,7 @@ class AlinaBot:
         # Если сюда дошли — пользователь ввёл текст, который НЕ является пунктом FAQ и не навигацией.
         # Закрываем FAQ и возвращаем False, чтобы обычный обработчик продолжил диалог тем же сообщением.
         context.user_data['in_faq_mode'] = False
+        await update.message.reply_text("✅ FAQ закрыт. Продолжаем диалог.", reply_markup=ReplyKeyboardRemove())
         return False
 
     
