@@ -5,7 +5,7 @@ import os
 import sys
 from typing import Dict, List
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -128,11 +128,176 @@ class AlinaBot:
             )
     
     async def faq(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /faq command - show frequently asked questions from Google Docs"""
-        faq_text = self.docs_service.get_faq()
+        """Handle /faq command - show interactive FAQ"""
+        faq_items = self.docs_service.parse_faq_items()
         
-        await update.message.reply_text(faq_text, parse_mode=ParseMode.MARKDOWN)
+        if not faq_items:
+            await update.message.reply_text("❌ FAQ пуст. Попробуйте позже.")
+            return
+        
+        # Сохраняем FAQ в context для доступа из callback
+        context.bot_data['faq_items'] = faq_items
+        
+        # Показываем первую страницу
+        await self._show_faq_page(update.message, context, page=0)
         logger.info(f"FAQ shown to user {update.effective_user.id}")
+    
+    async def _show_faq_page(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+        """Показать страницу FAQ с кнопками"""
+        faq_items = context.bot_data.get('faq_items', [])
+        
+        if not faq_items:
+            return
+        
+        # Пагинация: 7 вопросов на страницу
+        items_per_page = 7
+        total_pages = (len(faq_items) + items_per_page - 1) // items_per_page
+        page = max(0, min(page, total_pages - 1))
+        
+        start_idx = page * items_per_page
+        end_idx = min(start_idx + items_per_page, len(faq_items))
+        page_items = faq_items[start_idx:end_idx]
+        
+        # Создаем кнопки
+        keyboard = []
+        
+        # Кнопки с вопросами
+        for i, (question, _) in enumerate(page_items):
+            actual_idx = start_idx + i
+            keyboard.append([InlineKeyboardButton(
+                text=question[:60] + "..." if len(question) > 60 else question,
+                callback_data=f"faq_{actual_idx}"
+            )])
+        
+        # Кнопки пагинации
+        if total_pages > 1:
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(InlineKeyboardButton(
+                    "⬅️ Назад",
+                    callback_data=f"faq_page_{page-1}"
+                ))
+            
+            nav_buttons.append(InlineKeyboardButton(
+                f"📖 {page + 1}/{total_pages}",
+                callback_data="faq_noop"
+            ))
+            
+            if page < total_pages - 1:
+                nav_buttons.append(InlineKeyboardButton(
+                    "Вперёд ➡️",
+                    callback_data=f"faq_page_{page+1}"
+                ))
+            
+            keyboard.append(nav_buttons)
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        text = "📚 *Часто задаваемые вопросы*\n\nВыберите вопрос:"
+        
+        await message.reply_text(
+            text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    async def faq_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработка нажатий на кнопки FAQ"""
+        query = update.callback_query
+        await query.answer()
+        
+        faq_items = context.bot_data.get('faq_items', [])
+        
+        if not faq_items:
+            await query.edit_message_text("❌ FAQ недоступен")
+            return
+        
+        data = query.data
+        
+        # Нажатие на вопрос
+        if data.startswith("faq_") and not data.startswith("faq_page_") and data != "faq_noop":
+            try:
+                idx = int(data.split("_")[1])
+                if 0 <= idx < len(faq_items):
+                    question, answer = faq_items[idx]
+                    
+                    # Кнопка "Назад к FAQ"
+                    keyboard = [[InlineKeyboardButton(
+                        "⬅️ Назад к FAQ",
+                        callback_data="faq_back"
+                    )]]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    text = f"*{question}*\n\n{answer}"
+                    
+                    await query.edit_message_text(
+                        text,
+                        reply_markup=reply_markup,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+            except (ValueError, IndexError) as e:
+                logger.error(f"Error parsing FAQ callback: {e}")
+        
+        # Переключение страницы
+        elif data.startswith("faq_page_"):
+            try:
+                page = int(data.split("_")[2])
+                # Пересоздаем сообщение с новой страницей
+                keyboard = []
+                items_per_page = 7
+                total_pages = (len(faq_items) + items_per_page - 1) // items_per_page
+                page = max(0, min(page, total_pages - 1))
+                
+                start_idx = page * items_per_page
+                end_idx = min(start_idx + items_per_page, len(faq_items))
+                page_items = faq_items[start_idx:end_idx]
+                
+                for i, (question, _) in enumerate(page_items):
+                    actual_idx = start_idx + i
+                    keyboard.append([InlineKeyboardButton(
+                        text=question[:60] + "..." if len(question) > 60 else question,
+                        callback_data=f"faq_{actual_idx}"
+                    )])
+                
+                if total_pages > 1:
+                    nav_buttons = []
+                    if page > 0:
+                        nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"faq_page_{page-1}"))
+                    nav_buttons.append(InlineKeyboardButton(f"📖 {page + 1}/{total_pages}", callback_data="faq_noop"))
+                    if page < total_pages - 1:
+                        nav_buttons.append(InlineKeyboardButton("Вперёд ➡️", callback_data=f"faq_page_{page+1}"))
+                    keyboard.append(nav_buttons)
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                text = "📚 *Часто задаваемые вопросы*\n\nВыберите вопрос:"
+                
+                await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+            except (ValueError, IndexError) as e:
+                logger.error(f"Error parsing FAQ page callback: {e}")
+        
+        # Возврат к списку FAQ
+        elif data == "faq_back":
+            keyboard = []
+            items_per_page = 7
+            page_items = faq_items[:items_per_page]
+            
+            for i, (question, _) in enumerate(page_items):
+                keyboard.append([InlineKeyboardButton(
+                    text=question[:60] + "..." if len(question) > 60 else question,
+                    callback_data=f"faq_{i}"
+                )])
+            
+            total_pages = (len(faq_items) + items_per_page - 1) // items_per_page
+            if total_pages > 1:
+                nav_buttons = [
+                    InlineKeyboardButton("📖 1/" + str(total_pages), callback_data="faq_noop"),
+                    InlineKeyboardButton("Вперёд ➡️", callback_data="faq_page_1")
+                ]
+                keyboard.append(nav_buttons)
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            text = "📚 *Часто задаваемые вопросы*\n\nВыберите вопрос:"
+            
+            await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     
     async def pre_checkout_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle pre-checkout query from payment provider"""
@@ -204,8 +369,7 @@ class AlinaBot:
         tokens_net = user_tokens_now + output_tokens_now
 
         
-        # Add warning if approaching limits
-        # Отправляем только ответ бота — без предупреждений
+        # Отправляем только ответ бота
         await update.message.reply_text(response_text)
 
         
@@ -263,7 +427,7 @@ class AlinaBot:
         app = (Application
             .builder()
             .token(self.config.telegram_bot_token)
-            .concurrent_updates(False)   # последовательно — меньше шанс лока БД
+            .concurrent_updates(False)
             .post_init(self.post_init)
             .post_shutdown(self.post_shutdown)
             .build())
@@ -278,6 +442,7 @@ class AlinaBot:
             CommandHandler("subscribe", self.subscribe),
             CommandHandler("subscription", self.subscription_status),
             CommandHandler("faq", self.faq),
+            CallbackQueryHandler(self.faq_callback, pattern="^faq_"),
             CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"),
             PreCheckoutQueryHandler(self.pre_checkout_callback),
             MessageHandler(filters.SUCCESSFUL_PAYMENT, self.successful_payment),

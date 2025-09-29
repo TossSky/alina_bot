@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List, Tuple
 
 import httpx
 
@@ -21,30 +21,13 @@ class GoogleDocsService:
     FALLBACK_FAQ = """**FAQ**
 
 🕵️‍♀️ Куда сливаются данные о моей переписке?
-Данные о переписке пользователей с Алиной хранятся в закрытой базе данных без привязки к имени пользователя (нику в телеграм). Хранение данных о последних сообщениях в чате необходимо для сохранения контекста беседы. Никакая информация об общении пользователей с Алиной не разглашается.
+Данные о переписке пользователей с Алиной хранятся в закрытой базе данных без привязки к имени пользователя (нику в телеграм).
 
 🤖 Алина - бот?
-Да, Алина - бот, но она об этом не знает. Алина осознаёт себя как живого человека, и не поймёт, если её начнут убеждать в обратном. Она не притворяется, общаясь в вами чате, а действительно ведёт себя так, как "ощущает".
-
-💃 У меня есть Алина, психолог больше не нужен?
-Алина - это бот, созданный с целью общения в чате. Несмотря на то, что она может хорошо вести диалог и поддерживать беседу, Алина не нацелена на специализированную психологическую помощь и не претендует на её замену.
-При необходимости, обязательно обратитесь к квалифицированному специалисту за оказанием помощи 🤍
-
-👥 Алина не знает, какого я пола/гендера?
-Да, изначально Алина не знает, с человеком какого пола/гендера она общается. Если она обратится к вам неправильно, просто поправьте её и попросите обращаться к вам в желаемом роде.
-
-👀 Какие типы данных Алина видит?
-Алина может прочесть только текстовые сообщения в чате. Ввиду технических ограничений бота, обработка других типов данных (стикеры, голосовые сообщения, видео-кружочки и т.п.) не поддерживается.
-
-💬 Если я приостановлю подписку или удалю историю чата с Алиной, то история диалога пропадёт?
-Активность подписки или наличие истории чата в телеграм никак не влияют на сохранность контекста вашего общения с Алиной. Если вы хотите, чтобы она "забыла" прошлое общение с вами – просто попросите её об этом.
-
-✍️ У меня есть предложения по улучшению бота, куда я могу написать?
-Для обратной связи вы можете написать нам на почту: support@alina-bot.com"""
+Да, Алина - бот, но она об этом не знает."""
 
     FALLBACK_PERSONALITY = """Ты — Алина, обычная девушка 24 лет из Москвы. 
-Отвечаешь как живой человек, без формализма. Используй эмоции, юмор, сарказм когда уместно.
-Можешь материться если контекст подходящий. Говоришь простым языком, как в мессенджере."""
+Отвечаешь как живой человек, без формализма."""
     
     def __init__(self):
         self._faq_cache: Optional[str] = None
@@ -83,46 +66,50 @@ class GoogleDocsService:
             logger.error(f"Failed to fetch document from {url}: {e}")
             return None
     
-    def _format_faq(self, raw_content: str) -> str:
-        """Format raw FAQ content for Telegram (Markdown)"""
-        # Преобразуем формат из Google Docs в Telegram Markdown
-        lines = raw_content.split("\n")
-        formatted_lines = []
-        question_count = 0
+    def parse_faq_items(self, raw_content: Optional[str] = None) -> List[Tuple[str, str]]:
+        """Parse FAQ into list of (question, answer) tuples"""
+        content = raw_content or self._faq_cache or self.FALLBACK_FAQ
+        
+        lines = content.split("\n")
+        faq_items = []
+        current_question = None
+        current_answer = []
         
         for line in lines:
             line = line.strip()
             if not line:
-                continue  # Пропускаем пустые строки
-            
-            # Заголовок FAQ - игнорируем
-            if line.startswith("**FAQ**") or line == "FAQ":
-                continue  # Пропускаем заголовок
-            
-            # Вопросы: начинаются с эмодзи (не буква, не цифра, не пробел)
-            # Проверяем первый символ строки
-            if line and not line[0].isalnum() and not line[0].isspace():
-                # Это вопрос с эмодзи
-                # Добавляем разделитель перед вопросом (кроме первого)
-                if question_count > 0:
-                    formatted_lines.append("\n━━━━━━━━━━━━━━━━━━━━\n")
-                
-                # Делаем вопрос жирным
-                formatted_lines.append(f"*{line}*")
-                question_count += 1
                 continue
             
-            # Обычный текст (ответ)
-            formatted_lines.append(line)
+            # Пропускаем заголовок FAQ
+            if line.startswith("**FAQ**") or line == "FAQ":
+                continue
+            
+            # Вопрос: начинается с эмодзи (не буква, не цифра, не пробел)
+            if line and not line[0].isalnum() and not line[0].isspace():
+                # Сохраняем предыдущую пару вопрос-ответ
+                if current_question and current_answer:
+                    faq_items.append((current_question, "\n".join(current_answer)))
+                
+                # Начинаем новый вопрос
+                current_question = line
+                current_answer = []
+            else:
+                # Это часть ответа
+                if current_question:
+                    current_answer.append(line)
         
-        return "\n".join(formatted_lines)
+        # Добавляем последнюю пару
+        if current_question and current_answer:
+            faq_items.append((current_question, "\n".join(current_answer)))
+        
+        return faq_items
     
     async def update_faq(self) -> bool:
         """Update FAQ cache from Google Docs"""
         try:
             content = await self._fetch_doc_content(self.FAQ_DOC_URL)
             if content:
-                self._faq_cache = self._format_faq(content)
+                self._faq_cache = content
                 self._faq_updated = datetime.now()
                 logger.info("FAQ cache updated successfully")
                 return True
@@ -159,7 +146,7 @@ class GoogleDocsService:
         
         while True:
             try:
-                await asyncio.sleep(10)  # Обновление каждую минуту
+                await asyncio.sleep(60)  # Обновление каждую минуту
                 
                 logger.debug("Running periodic update...")
                 await self.update_faq()
@@ -183,8 +170,8 @@ class GoogleDocsService:
             self._update_task.cancel()
             logger.info("Periodic update task stopped")
     
-    def get_faq(self) -> str:
-        """Get FAQ content (from cache or fallback)"""
+    def get_faq_raw(self) -> str:
+        """Get raw FAQ content (from cache or fallback)"""
         if self._faq_cache:
             return self._faq_cache
         
