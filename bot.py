@@ -19,6 +19,7 @@ from telegram.ext import (
 
 from config import Config
 from database import DialogueDB
+from google_docs_service import get_docs_service
 from llm import AlinaLLM
 from payments import SubscriptionManager, create_invoice, handle_subscribe_callback
 from personality import ALINA_PERSONALITY, enrich_prompt
@@ -47,6 +48,7 @@ class AlinaBot:
             proxy_url=self.config.proxy_url,
         )
         self.subscription_manager = SubscriptionManager(self.db)
+        self.docs_service = get_docs_service()
         self.system_prompt = enrich_prompt(ALINA_PERSONALITY, {})
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -125,6 +127,13 @@ class AlinaBot:
                 parse_mode=ParseMode.MARKDOWN
             )
     
+    async def faq(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /faq command - show frequently asked questions from Google Docs"""
+        faq_text = self.docs_service.get_faq()
+        
+        await update.message.reply_text(faq_text, parse_mode=ParseMode.MARKDOWN)
+        logger.info(f"FAQ shown to user {update.effective_user.id}")
+    
     async def pre_checkout_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle pre-checkout query from payment provider"""
         await update.pre_checkout_query.answer(ok=True)
@@ -172,10 +181,15 @@ class AlinaBot:
         
         # Get conversation history
         history = self.db.get_dialogue_history(user_id, limit=20)
-        messages = [{"role": "system", "content": self.system_prompt}] + history
+        
+        # Получаем актуальный промпт из кеша
+        current_personality = self.docs_service.get_personality()
+        current_system_prompt = enrich_prompt(current_personality, {})
+        
+        messages = [{"role": "system", "content": current_system_prompt}] + history
         
         # Token counting for logging
-        sys_tokens = self.llm.count_tokens_messages([{"role": "system", "content": self.system_prompt}])
+        sys_tokens = self.llm.count_tokens_messages([{"role": "system", "content": current_system_prompt}])
         hist_tokens = self.llm.count_tokens_messages(history)
         total_est = self.llm.count_tokens_messages(messages)
         logger.info(f"Context: sys={sys_tokens}, hist={hist_tokens}, total={total_est}")
@@ -234,6 +248,9 @@ class AlinaBot:
             logger.error("Missing required configuration!")
             return
         
+        # Запускаем фоновое обновление из Google Docs
+        self.docs_service.start_periodic_updates()
+        
         app = (Application
             .builder()
             .token(self.config.telegram_bot_token)
@@ -249,6 +266,7 @@ class AlinaBot:
             CommandHandler("reset_limits", self.reset_limits),
             CommandHandler("subscribe", self.subscribe),
             CommandHandler("subscription", self.subscription_status),
+            CommandHandler("faq", self.faq),
             CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"),
             PreCheckoutQueryHandler(self.pre_checkout_callback),
             MessageHandler(filters.SUCCESSFUL_PAYMENT, self.successful_payment),

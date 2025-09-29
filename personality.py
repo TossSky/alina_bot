@@ -1,45 +1,31 @@
 """Personality Module - AI Character Configuration"""
 
 import logging
-import os
 from typing import Dict, Optional
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
-# Google Docs URL with personality prompt
-ALINA_DOC_URL = "https://docs.google.com/document/d/1oLwiaPGMkb-VqMQCJmDwOWBPJOYfm99gk4oqhNPUPEo/edit"
-
-# Fallback personality if Google Docs is unavailable
+# Fallback personality if Google Docs is unavailable  
 FALLBACK_PERSONALITY = """Ты — Алина, обычная девушка 24 лет из Москвы. 
 Отвечаешь как живой человек, без формализма. Используй эмоции, юмор, сарказм когда уместно.
 Можешь материться если контекст подходящий. Говоришь простым языком, как в мессенджере."""
 
 
-def _fetch_personality_from_gdocs(url: str, timeout: float = 10.0) -> str:
-    """Fetch personality prompt from Google Docs"""
+# Lazy import to avoid circular dependency
+def get_current_personality() -> str:
+    """Get current personality from Google Docs service"""
     try:
-        doc_id = url.split("/d/")[1].split("/")[0].strip()
-        export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
-        
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            response = client.get(export_url, headers={"Accept": "text/plain"})
-            response.raise_for_status()
-            
-            text = response.text.replace("\r\n", "\n").replace("\xa0", " ").strip()
-            if not text:
-                raise ValueError("Empty document")
-            
-            return text
+        from google_docs_service import get_docs_service
+        return get_docs_service().get_personality()
     except Exception as e:
-        logger.warning(f"Failed to load personality from Google Docs: {e}")
+        logger.warning(f"Failed to get personality from docs service: {e}")
         return FALLBACK_PERSONALITY
 
 
-# Load personality on module import
-ALINA_PERSONALITY = _fetch_personality_from_gdocs(ALINA_DOC_URL)
-print(ALINA_PERSONALITY)
+# Load personality on module import (for backward compatibility)
+ALINA_PERSONALITY = get_current_personality()
+
+
 # Mood modifiers for context
 MOOD_CONTEXTS = {
     "morning": "только проснулась, хочу кофе и тишину",
