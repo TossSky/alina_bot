@@ -99,8 +99,10 @@ class GoogleDocsService:
             if line.startswith("**FAQ**") or line == "FAQ":
                 continue  # Пропускаем заголовок
             
-            # Вопросы (начинаются с эмодзи)
-            if line and line[0] in "🕵️🤖💃👥👀💬✍️":
+            # Вопросы: начинаются с эмодзи (не буква, не цифра, не пробел)
+            # Проверяем первый символ строки
+            if line and not line[0].isalnum() and not line[0].isspace():
+                # Это вопрос с эмодзи
                 # Добавляем разделитель перед вопросом (кроме первого)
                 if question_count > 0:
                     formatted_lines.append("\n━━━━━━━━━━━━━━━━━━━━\n")
