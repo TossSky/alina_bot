@@ -200,8 +200,9 @@ class AlinaBot:
         
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
         
-        # Используем невидимый символ (zero-width space)
-        await message.reply_text("​", reply_markup=reply_markup)
+        # Показываем FAQ с нормальным текстом
+        faq_text = f"📖 *FAQ - Частые вопросы*\n\nВыберите интересующий вас вопрос:\nСтраница {page + 1} из {total_pages}"
+        await message.reply_text(faq_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     
     async def handle_faq_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработка нажатий на кнопки FAQ"""
@@ -221,8 +222,8 @@ class AlinaBot:
             return
         elif text in ["❌ Закрыть", "❌ Закрыть FAQ"]:
             context.user_data['in_faq_mode'] = False
-            # Просто убираем клавиатуру
-            await update.message.reply_text("​", reply_markup=ReplyKeyboardRemove())
+            # Убираем клавиатуру с сообщением
+            await update.message.reply_text("✅ FAQ закрыт", reply_markup=ReplyKeyboardRemove())
             return
         elif text == "⬅️ Назад к FAQ":
             # Возврат к списку вопросов
@@ -334,9 +335,9 @@ class AlinaBot:
         output_tokens_now = self.llm.count_tokens_text(response_text)
         tokens_net = user_tokens_now + output_tokens_now
 
-        
-        # Отправляем только ответ бота
-        await update.message.reply_text(response_text)
+        # Формируем полное сообщение: вопрос пользователя + ответ Алины
+        full_response = f"❓ Вы: {user_message}\n\n💬 Алина: {response_text}"
+        await update.message.reply_text(full_response)
 
         
         self.db.add_message(user_id, "assistant", response_text, tokens_net)
