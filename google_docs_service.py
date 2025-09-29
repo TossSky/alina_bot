@@ -88,12 +88,12 @@ class GoogleDocsService:
         # Преобразуем формат из Google Docs в Telegram Markdown
         lines = raw_content.split("\n")
         formatted_lines = []
+        question_count = 0
         
         for line in lines:
             line = line.strip()
             if not line:
-                formatted_lines.append("")
-                continue
+                continue  # Пропускаем пустые строки
             
             # Заголовок FAQ
             if line.startswith("**FAQ**") or line == "FAQ":
@@ -102,11 +102,16 @@ class GoogleDocsService:
             
             # Вопросы (начинаются с эмодзи)
             if line and line[0] in "🕵️🤖💃👥👀💬✍️":
+                # Добавляем разделитель перед вопросом (кроме первого)
+                if question_count > 0:
+                    formatted_lines.append("\n━━━━━━━━━━━━━━━━━━━━\n")
+                
                 # Делаем вопрос жирным
-                formatted_lines.append(f"\n*{line}*")
+                formatted_lines.append(f"*{line}*")
+                question_count += 1
                 continue
             
-            # Обычный текст
+            # Обычный текст (ответ)
             formatted_lines.append(line)
         
         return "\n".join(formatted_lines)
