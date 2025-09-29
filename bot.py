@@ -161,28 +161,17 @@ class AlinaBot:
         end_idx = min(start_idx + items_per_page, len(faq_items))
         page_items = faq_items[start_idx:end_idx]
         
-        # Формируем текст со списком вопросов
-        text_lines = ["📚 *Часто задаваемые вопросы*\n"]
+        # Простой текст
+        text = f"📚 *Часто задаваемые вопросы*\n\n📖 Страница {page + 1}/{total_pages}"
         
-        for i, (question, _) in enumerate(page_items):
-            num = i + 1
-            text_lines.append(f"{num}. {question}")
-        
-        text_lines.append(f"\n📖 Страница {page + 1}/{total_pages}")
-        text = "\n".join(text_lines)
-        
-        # Создаем Reply Keyboard
+        # Создаем Reply Keyboard с вопросами
         keyboard = []
         
-        # Кнопки с номерами вопросов (по 3 в ряд)
-        row = []
-        for i in range(len(page_items)):
-            row.append(KeyboardButton(str(i + 1)))
-            if len(row) == 3:
-                keyboard.append(row)
-                row = []
-        if row:
-            keyboard.append(row)
+        # Каждый вопрос на отдельной кнопке
+        for question, _ in page_items:
+            # Укорачиваем вопрос если он слишком длинный (макс 64 символа для кнопки)
+            button_text = question[:64] if len(question) <= 64 else question[:61] + "..."
+            keyboard.append([KeyboardButton(button_text)])
         
         # Кнопки навигации
         nav_row = []
@@ -232,31 +221,29 @@ class AlinaBot:
             await self._show_faq_page_reply(update.message, context, page)
             return
         
-        # Проверяем, это номер вопроса
-        try:
-            num = int(text)
-            items_per_page = 7
-            start_idx = page * items_per_page
-            actual_idx = start_idx + num - 1
-            
-            if 0 <= actual_idx < len(faq_items):
-                question, answer = faq_items[actual_idx]
-                
+        # Проверяем, это вопрос из текущей страницы
+        items_per_page = 7
+        start_idx = page * items_per_page
+        end_idx = min(start_idx + items_per_page, len(faq_items))
+        page_items = faq_items[start_idx:end_idx]
+        
+        # Ищем вопрос по совпадению текста (учитываем укорачивание)
+        for idx, (question, answer) in enumerate(page_items):
+            button_text = question[:64] if len(question) <= 64 else question[:61] + "..."
+            if text == button_text:
                 # Показываем ответ
-                text = f"*{question}*\n\n{answer}"
+                response_text = f"*{question}*\n\n{answer}"
                 
                 # Клавиатура с кнопкой возврата
                 keyboard = [[KeyboardButton("⬅️ Назад к FAQ")], [KeyboardButton("❌ Закрыть FAQ")]]
                 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
                 
                 await update.message.reply_text(
-                    text,
+                    response_text,
                     reply_markup=reply_markup,
                     parse_mode=ParseMode.MARKDOWN
                 )
-        except ValueError:
-            # Не номер, пропускаем
-            pass
+                return
     
     async def pre_checkout_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle pre-checkout query from payment provider"""
