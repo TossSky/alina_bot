@@ -238,6 +238,8 @@ class AlinaBot:
         
         # Ищем вопрос по совпадению текста
         logger.info(f"FAQ: Searching for button text: '{text}'")
+        logger.info(f"FAQ: Button text length: {len(text)}")
+        logger.info(f"FAQ: Button text repr: {repr(text)}")
         logger.info(f"FAQ: Page {page}, items count: {len(page_items)}")
         
         for idx, (question, answer) in enumerate(page_items):
@@ -250,8 +252,12 @@ class AlinaBot:
             #     button_text = words[0] + "..."
             
             logger.info(f"FAQ: Checking item {idx}: button='{button_text}', question='{question[:50]}...'")
+            logger.info(f"FAQ: Item {idx} lengths: button={len(button_text)}, question={len(question)}")
+            logger.info(f"FAQ: Item {idx} repr: button={repr(button_text)}, question={repr(question[:50])}")
+            logger.info(f"FAQ: Item {idx} match check: text==button_text: {text == button_text}, text==question: {text == question}")
             
             if text == button_text or text == question:
+                logger.info(f"FAQ: MATCH FOUND for item {idx}!")
                 # Формируем ответ: вопрос пользователя + ответ без дополнительных префиксов
                 response_text = f"❓ {question}\n\n{answer}"
                 
