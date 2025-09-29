@@ -127,20 +127,40 @@ class AlinaBot:
                 parse_mode=ParseMode.MARKDOWN
             )
     
+    async def clear_keyboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /clear_keyboard command - remove reply keyboard"""
+        await update.message.reply_text(
+            "✅ Клавиатура очищена",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        logger.info(f"Keyboard cleared for user {update.effective_user.id}")
+    
     async def faq(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /faq command - show interactive FAQ with inline keyboard"""
+        # Удаляем сообщение с командой /faq
+        try:
+            await update.message.delete()
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение /faq: {e}")
+        
         faq_items = self.docs_service.parse_faq_items()
         
         if not faq_items:
             await update.message.reply_text("❌ FAQ пуст. Попробуйте позже.")
             return
         
+        # Убираем старую Reply Keyboard если она есть
+        loading_msg = await update.message.reply_text(
+            "📖 Загружаю FAQ...",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        
         # Сохраняем FAQ в user_data
         context.user_data['faq_items'] = faq_items
         context.user_data['faq_page'] = 0
         
         # Показываем Inline клавиатуру
-        await self._show_faq_inline(update.message, context, page=0)
+        await self._show_faq_inline(loading_msg, context, page=0)
         logger.info(f"FAQ shown to user {update.effective_user.id}")
     
     async def _show_faq_inline(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, edit: bool = False):
@@ -376,6 +396,7 @@ class AlinaBot:
             CommandHandler("reset_limits", self.reset_limits),
             CommandHandler("subscribe", self.subscribe),
             CommandHandler("subscription", self.subscription_status),
+            CommandHandler("clear_keyboard", self.clear_keyboard),
             CommandHandler("faq", self.faq),
             CallbackQueryHandler(self.handle_faq_callback, pattern="^faq_"),
             CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"),
