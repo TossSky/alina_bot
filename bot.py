@@ -247,8 +247,8 @@ class AlinaBot:
                 button_text = words[0] + "..."
             
             if text == button_text or text == question:
-                # Формируем ответ в том же формате, что и обычные сообщения
-                response_text = f"❓ Вы: {question}\n\n💬 Алина: {answer}"
+                # Формируем ответ: вопрос пользователя + ответ без дополнительных префиксов
+                response_text = f"{answer}"
                 
                 # Клавиатура с кнопкой возврата
                 keyboard = [[KeyboardButton("⬅️ Назад к FAQ")], [KeyboardButton("❌ Закрыть")]]
