@@ -242,19 +242,30 @@ class AlinaBot:
         return True
     
     
+    async def post_init(self, application: Application) -> None:
+        """Called after the bot starts - initialize background tasks"""
+        logger.info("Initializing background tasks...")
+        self.docs_service.start_periodic_updates()
+        logger.info("Background tasks started")
+    
+    async def post_shutdown(self, application: Application) -> None:
+        """Called before bot shutdown - cleanup background tasks"""
+        logger.info("Stopping background tasks...")
+        self.docs_service.stop_periodic_updates()
+        logger.info("Background tasks stopped")
+    
     def run(self) -> None:
         """Start the bot application"""
         if not self.config.telegram_bot_token or not self.config.openai_api_key:
             logger.error("Missing required configuration!")
             return
         
-        # Запускаем фоновое обновление из Google Docs
-        self.docs_service.start_periodic_updates()
-        
         app = (Application
             .builder()
             .token(self.config.telegram_bot_token)
             .concurrent_updates(False)   # последовательно — меньше шанс лока БД
+            .post_init(self.post_init)
+            .post_shutdown(self.post_shutdown)
             .build())
 
         app.bot_data['subscription_manager'] = self.subscription_manager
