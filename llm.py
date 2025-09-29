@@ -92,11 +92,15 @@ class AlinaLLM:
             # Если контент - массив (текст + изображения)
             elif isinstance(content, list):
                 for item in content:
-                    if item.get("type") == "input_text":
+                    if item.get("type") == "text":
                         total += len(enc.encode(item.get("text") or ""))
-                    elif item.get("type") == "input_image":
+                    elif item.get("type") == "image_url":
                         # Считаем токены для изображения
-                        total += self._calculate_image_tokens(item.get("image_url", ""))
+                        image_url_obj = item.get("image_url", {})
+                        if isinstance(image_url_obj, dict):
+                            total += self._calculate_image_tokens(image_url_obj.get("url", ""))
+                        else:
+                            total += self._calculate_image_tokens(image_url_obj)
         
         # Assistant reply overhead
         total += 3
@@ -198,7 +202,7 @@ def encode_image_to_base64(image_bytes: bytes) -> str:
 def create_image_message(image_bytes: bytes, text: str = "что на этой картинке?", 
                          mime_type: str = "image/jpeg", detail: str = "auto") -> Dict:
     """
-    Create a message with image content
+    Create a message with image content in OpenAI Chat Completions format
     
     Args:
         image_bytes: Image data as bytes
@@ -215,13 +219,15 @@ def create_image_message(image_bytes: bytes, text: str = "что на этой �
         "role": "user",
         "content": [
             {
-                "type": "input_text",
+                "type": "text",
                 "text": text
             },
             {
-                "type": "input_image",
-                "image_url": f"data:{mime_type};base64,{base64_image}",
-                "detail": detail
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mime_type};base64,{base64_image}",
+                    "detail": detail
+                }
             }
         ]
     }
