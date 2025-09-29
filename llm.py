@@ -1,5 +1,7 @@
 """LLM Client Module - OpenAI API Integration"""
 
+import base64
+import io
 import logging
 import os
 import random
@@ -15,6 +17,10 @@ logger = logging.getLogger(__name__)
 PRICE_INPUT = 0.00125
 PRICE_CACHED = 0.00013
 PRICE_OUTPUT = 0.01
+
+# Image token pricing for gpt-5-chat-latest
+IMAGE_BASE_TOKENS = 70
+IMAGE_TILE_TOKENS = 140
 
 
 class AlinaLLM:
@@ -67,8 +73,8 @@ class AlinaLLM:
         """Count tokens in plain text"""
         return len(self._get_encoder().encode(text or ""))
     
-    def count_tokens_messages(self, messages: List[Dict[str, str]]) -> int:
-        """Count tokens in chat messages using ChatML format"""
+    def count_tokens_messages(self, messages: List[Dict]) -> int:
+        """Count tokens in chat messages including images using ChatML format"""
         enc = self._get_encoder()
         total = 0
         
@@ -77,11 +83,36 @@ class AlinaLLM:
         
         for message in messages:
             total += tokens_per_message
-            total += len(enc.encode(message.get("content") or ""))
+            
+            content = message.get("content")
+            
+            # Если контент - просто строка
+            if isinstance(content, str):
+                total += len(enc.encode(content or ""))
+            # Если контент - массив (текст + изображения)
+            elif isinstance(content, list):
+                for item in content:
+                    if item.get("type") == "input_text":
+                        total += len(enc.encode(item.get("text") or ""))
+                    elif item.get("type") == "input_image":
+                        # Считаем токены для изображения
+                        total += self._calculate_image_tokens(item.get("image_url", ""))
         
         # Assistant reply overhead
         total += 3
         return total
+    
+    def _calculate_image_tokens(self, image_url: str) -> int:
+        """
+        Calculate image tokens for gpt-5-chat-latest
+        Based on: base_tokens=70, tile_tokens=140
+        
+        Для упрощения используем среднее значение ~500 токенов
+        Точный расчет требует знания размеров изображения
+        """
+        # Приблизительная оценка: base + несколько тайлов
+        # Для большинства изображений это будет в районе 300-800 токенов
+        return IMAGE_BASE_TOKENS + (IMAGE_TILE_TOKENS * 3)  # ~490 tokens
     
     def _get_generation_params(self, context: Optional[Dict] = None) -> Dict:
         """Get generation parameters with some randomness for variety"""
@@ -102,7 +133,7 @@ class AlinaLLM:
     
     async def generate_response(
         self, 
-        messages: List[Dict[str, str]], 
+        messages: List[Dict], 
         context: Optional[Dict] = None
     ) -> Tuple[str, int]:
         """
@@ -157,3 +188,40 @@ class AlinaLLM:
         finally:
             if client:
                 await client.close()
+
+
+def encode_image_to_base64(image_bytes: bytes) -> str:
+    """Encode image bytes to base64 string"""
+    return base64.b64encode(image_bytes).decode('utf-8')
+
+
+def create_image_message(image_bytes: bytes, text: str = "что на этой картинке?", 
+                         mime_type: str = "image/jpeg", detail: str = "auto") -> Dict:
+    """
+    Create a message with image content
+    
+    Args:
+        image_bytes: Image data as bytes
+        text: Text prompt for the image
+        mime_type: MIME type of the image (e.g., "image/jpeg", "image/png")
+        detail: Detail level ("low", "high", "auto")
+    
+    Returns:
+        Dict with message in OpenAI format
+    """
+    base64_image = encode_image_to_base64(image_bytes)
+    
+    return {
+        "role": "user",
+        "content": [
+            {
+                "type": "input_text",
+                "text": text
+            },
+            {
+                "type": "input_image",
+                "image_url": f"data:{mime_type};base64,{base64_image}",
+                "detail": detail
+            }
+        ]
+    }

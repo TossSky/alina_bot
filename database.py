@@ -21,13 +21,13 @@ class DialogueDB:
     def _get_connection(self):
         conn = sqlite3.connect(
             self.db_path,
-            timeout=10.0,              # ждём до 10с, вместо немедленной ошибки
-            check_same_thread=False    # разрешаем использовать соединение из разных потоков
+            timeout=10.0,
+            check_same_thread=False
         )
         # мягкие режимы для параллельных чтений/коротких транзакций
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
-        conn.execute("PRAGMA busy_timeout=5000;")  # мс
+        conn.execute("PRAGMA busy_timeout=5000;")
 
         try:
             yield conn
@@ -52,17 +52,20 @@ class DialogueDB:
                     last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     total_messages INTEGER DEFAULT 0,
                     total_tokens INTEGER DEFAULT 0,
+                    total_images INTEGER DEFAULT 0,
                     user_data TEXT DEFAULT '{}'
                 )
             """)
             
-            # Messages table
+            # Messages table with image support
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     role TEXT,
                     content TEXT,
+                    has_image BOOLEAN DEFAULT 0,
+                    image_count INTEGER DEFAULT 0,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
@@ -73,6 +76,22 @@ class DialogueDB:
                 CREATE INDEX IF NOT EXISTS idx_messages_user_timestamp
                 ON messages (user_id, timestamp DESC)
             """)
+            
+            # Добавляем колонки для изображений, если их нет (миграция)
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN total_images INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            try:
+                cursor.execute("ALTER TABLE messages ADD COLUMN has_image BOOLEAN DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                cursor.execute("ALTER TABLE messages ADD COLUMN image_count INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
     
     def get_or_create_user(self, user_id: int) -> Dict:
         """Get or create user record"""
@@ -80,7 +99,7 @@ class DialogueDB:
             cursor = conn.cursor()
             
             cursor.execute(
-                "SELECT user_id, created_at, last_active, total_messages, total_tokens, user_data "
+                "SELECT user_id, created_at, last_active, total_messages, total_tokens, total_images, user_data "
                 "FROM users WHERE user_id = ?",
                 (user_id,)
             )
@@ -94,13 +113,14 @@ class DialogueDB:
                     "last_active": datetime.now().isoformat(),
                     "total_messages": 0,
                     "total_tokens": 0,
+                    "total_images": 0,
                     "user_data": {}
                 }
             
             cursor.execute("UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
             
             user_dict = dict(zip(
-                ["user_id", "created_at", "last_active", "total_messages", "total_tokens", "user_data"],
+                ["user_id", "created_at", "last_active", "total_messages", "total_tokens", "total_images", "user_data"],
                 row
             ))
             
@@ -111,15 +131,16 @@ class DialogueDB:
             
             return user_dict
     
-    def add_message(self, user_id: int, role: str, content: str, tokens_used: int = 0):
+    def add_message(self, user_id: int, role: str, content: str, tokens_used: int = 0, 
+                    has_image: bool = False, image_count: int = 0):
         """Add message to conversation history"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
             # Insert message
             cursor.execute(
-                "INSERT INTO messages (user_id, role, content) VALUES (?, ?, ?)",
-                (user_id, role, content)
+                "INSERT INTO messages (user_id, role, content, has_image, image_count) VALUES (?, ?, ?, ?, ?)",
+                (user_id, role, content, has_image, image_count)
             )
             
             # Update counters
@@ -128,6 +149,12 @@ class DialogueDB:
                     "UPDATE users SET total_messages = total_messages + 1 WHERE user_id = ?",
                     (user_id,)
                 )
+                
+                if has_image:
+                    cursor.execute(
+                        "UPDATE users SET total_images = total_images + ? WHERE user_id = ?",
+                        (image_count, user_id)
+                    )
             
             if tokens_used > 0:
                 cursor.execute(
@@ -135,17 +162,17 @@ class DialogueDB:
                     (tokens_used, user_id)
                 )
             
-            # Periodic cleanup (редко и не валим хэндлер при ошибке БД)
+            # Periodic cleanup
             if role == "user":
                 try:
                     import random
-                    if random.random() < 0.1:  # ~10% сообщений запускают чистку
+                    if random.random() < 0.1:
                         self._cleanup_old_messages(user_id)
                 except Exception as e:
                     logger.warning(f"Cleanup skipped due to: {e}")
     
     def get_dialogue_history(self, user_id: int, limit: int = 20) -> List[Dict[str, str]]:
-        """Get conversation history for user"""
+        """Get conversation history for user (text only for context)"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
@@ -164,21 +191,25 @@ class DialogueDB:
             cursor = conn.cursor()
             
             cursor.execute(
-                "SELECT total_messages, total_tokens FROM users WHERE user_id = ?",
+                "SELECT total_messages, total_tokens, total_images FROM users WHERE user_id = ?",
                 (user_id,)
             )
             result = cursor.fetchone()
             
             if result:
-                return {"messages": result[0] or 0, "tokens": result[1] or 0}
-            return {"messages": 0, "tokens": 0}
+                return {
+                    "messages": result[0] or 0, 
+                    "tokens": result[1] or 0,
+                    "images": result[2] or 0
+                }
+            return {"messages": 0, "tokens": 0, "images": 0}
     
     def reset_user_limits(self, user_id: int):
         """Reset user's usage counters"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE users SET total_messages = 0, total_tokens = 0 WHERE user_id = ?",
+                "UPDATE users SET total_messages = 0, total_tokens = 0, total_images = 0 WHERE user_id = ?",
                 (user_id,)
             )
     
@@ -232,4 +263,3 @@ class DialogueDB:
                     )
                 """, (user_id, to_delete))
                 logger.info(f"Cleaned {to_delete} old messages for user {user_id}")
-

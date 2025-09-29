@@ -41,6 +41,11 @@ class Config:
         self.subscription_required = os.getenv("SUBSCRIPTION_REQUIRED", "true").lower() == "true"
         self.free_messages_limit = int(os.getenv("FREE_MESSAGES_LIMIT", "15"))
         self.free_tokens_limit = int(os.getenv("FREE_TOKENS_LIMIT", "2000"))
+        self.free_images_limit = int(os.getenv("FREE_IMAGES_LIMIT", "5"))
+        
+        # Image settings
+        self.max_image_size_mb = int(os.getenv("MAX_IMAGE_SIZE_MB", "10"))
+        self.image_detail_level = os.getenv("IMAGE_DETAIL_LEVEL", "auto")  # "low", "high", "auto"
         
         self._validate()
     
@@ -54,3 +59,6 @@ class Config:
         
         if self.use_proxy and not self.proxy_url:
             raise ValueError("PROXY_URL required when USE_PROXY=true")
+        
+        if self.image_detail_level not in ["low", "high", "auto"]:
+            raise ValueError("IMAGE_DETAIL_LEVEL must be 'low', 'high', or 'auto'")

@@ -20,7 +20,7 @@ from telegram.ext import (
 from config import Config
 from database import DialogueDB
 from google_docs_service import get_docs_service
-from llm import AlinaLLM
+from llm import AlinaLLM, create_image_message
 from payments import SubscriptionManager, create_invoice, handle_subscribe_callback
 from personality import ALINA_PERSONALITY, enrich_prompt
 
@@ -56,7 +56,7 @@ class AlinaBot:
         user = update.effective_user
         self.db.get_or_create_user(user_id=user.id)
         
-        text = "Меня зовут Алина) рада буду пообщаться с тобой!"
+        text = "Меня зовут Алина) рада буду пообщаться с тобой!\n\n📸 Теперь ты можешь отправлять мне картинки, и я их пойму!"
         await update.message.reply_text(text)
         logger.info(f"New user started: {user.id}")
     
@@ -86,7 +86,8 @@ class AlinaBot:
         await update.message.reply_text(
             "✅ Лимиты сброшены!\n\n"
             f"💬 Доступно: {self.config.free_messages_limit} сообщений\n"
-            f"🎯 Доступно: {self.config.free_tokens_limit} токенов"
+            f"🎯 Доступно: {self.config.free_tokens_limit} токенов\n"
+            f"📸 Доступно: {self.config.free_images_limit} изображений"
         )
         logger.info(f"Admin {user_id} reset their limits")
     
@@ -117,12 +118,14 @@ class AlinaBot:
             usage = self.db.get_user_usage(user_id)
             messages_left = max(0, self.config.free_messages_limit - usage["messages"])
             tokens_left = max(0, self.config.free_tokens_limit - usage["tokens"])
+            images_left = max(0, self.config.free_images_limit - usage["images"])
             
             await update.message.reply_text(
                 "❌ *У вас нет активной подписки*\n\n"
                 f"📦 *Бесплатные лимиты:*\n"
                 f"💬 Сообщения: {usage['messages']}/{self.config.free_messages_limit} (осталось {messages_left})\n"
-                f"🎯 Токены: {usage['tokens']}/{self.config.free_tokens_limit} (осталось {tokens_left})\n\n"
+                f"🎯 Токены: {usage['tokens']}/{self.config.free_tokens_limit} (осталось {tokens_left})\n"
+                f"📸 Изображения: {usage['images']}/{self.config.free_images_limit} (осталось {images_left})\n\n"
                 "Используйте /subscribe для оформления подписки.",
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -137,7 +140,6 @@ class AlinaBot:
     
     async def faq(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /faq command - show interactive FAQ with inline keyboard"""
-        # Удаляем сообщение с командой /faq
         try:
             await update.message.delete()
         except Exception as e:
@@ -149,11 +151,9 @@ class AlinaBot:
             await update.message.reply_text("❌ FAQ пуст. Попробуйте позже.")
             return
         
-        # Сохраняем FAQ в user_data
         context.user_data['faq_items'] = faq_items
         context.user_data['faq_page'] = 0
         
-        # Показываем Inline клавиатуру
         await self._show_faq_inline(update.message, context, page=0)
         logger.info(f"FAQ shown to user {update.effective_user.id}")
     
@@ -164,7 +164,6 @@ class AlinaBot:
         if not faq_items:
             return
         
-        # Пагинация: 3 вопроса на страницу
         items_per_page = 3
         total_pages = (len(faq_items) + items_per_page - 1) // items_per_page
         page = max(0, min(page, total_pages - 1))
@@ -174,7 +173,6 @@ class AlinaBot:
         end_idx = min(start_idx + items_per_page, len(faq_items))
         page_items = faq_items[start_idx:end_idx]
         
-        # Создаем Inline Keyboard с вопросами (по 1 в строку)
         keyboard = []
         
         for idx, (question, _) in enumerate(page_items):
@@ -182,25 +180,23 @@ class AlinaBot:
             callback_data = f"faq_q_{start_idx + idx}"
             keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
         
-        # Кнопки навигации (4-я строка)
         nav_row = []
         if page > 0:
             nav_row.append(InlineKeyboardButton("◀️ Назад", callback_data="faq_prev"))
         else:
-            nav_row.append(InlineKeyboardButton("⠀", callback_data="faq_noop"))  # Пустая кнопка
+            nav_row.append(InlineKeyboardButton("⠀", callback_data="faq_noop"))
         
         nav_row.append(InlineKeyboardButton("❌", callback_data="faq_close"))
         
         if page < total_pages - 1:
             nav_row.append(InlineKeyboardButton("Вперёд ▶️", callback_data="faq_next"))
         else:
-            nav_row.append(InlineKeyboardButton("⠀", callback_data="faq_noop"))  # Пустая кнопка
+            nav_row.append(InlineKeyboardButton("⠀", callback_data="faq_noop"))
         
         keyboard.append(nav_row)
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Показываем FAQ
         faq_text = f"📖 *FAQ - Частые вопросы*\n\nВыберите интересующий вас вопрос\nСтраница {page + 1} из {total_pages}"
         
         if edit:
@@ -217,7 +213,6 @@ class AlinaBot:
         faq_items = context.user_data.get('faq_items', [])
         page = context.user_data.get('faq_page', 0)
         
-        # Навигация
         if data == "faq_prev":
             await self._show_faq_inline(query.message, context, page - 1, edit=True)
         elif data == "faq_next":
@@ -227,13 +222,10 @@ class AlinaBot:
             context.user_data.pop('faq_items', None)
             context.user_data.pop('faq_page', None)
         elif data == "faq_back":
-            # Возврат к списку вопросов
             await self._show_faq_inline(query.message, context, page, edit=True)
         elif data == "faq_noop":
-            # Пустая кнопка - ничего не делаем
             pass
         elif data.startswith("faq_q_"):
-            # Показываем ответ на вопрос
             idx = int(data.split("_")[2])
             if 0 <= idx < len(faq_items):
                 question, answer = faq_items[idx]
@@ -274,6 +266,97 @@ class AlinaBot:
                 "Произошла ошибка при активации подписки. "
                 "Пожалуйста, обратитесь к администратору."
             )
+    
+    async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle photo messages with vision"""
+        user = update.effective_user
+        user_id = user.id
+        
+        # Проверяем подписку и лимиты для изображений
+        if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
+            usage = self.db.get_user_usage(user_id)
+            if usage["images"] >= self.config.free_images_limit:
+                await update.message.reply_text(
+                    "⚠️ `Вы исчерпали бесплатный лимит изображений`\n\n"
+                    "🌟 Для продолжения общения с картинками подключите /subscribe",
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=self.subscription_manager.get_subscription_keyboard()
+                )
+                return
+            
+            if not await self._check_limits(user_id, update):
+                return
+        
+        # Получаем фото
+        photo = update.message.photo[-1]  # Берём самое большое фото
+        
+        # Проверяем размер
+        file_size_mb = photo.file_size / (1024 * 1024)
+        if file_size_mb > self.config.max_image_size_mb:
+            await update.message.reply_text(
+                f"⚠️ Изображение слишком большое ({file_size_mb:.1f} МБ)\n"
+                f"Максимальный размер: {self.config.max_image_size_mb} МБ"
+            )
+            return
+        
+        # Скачиваем фото
+        file = await context.bot.get_file(photo.file_id)
+        image_bytes = await file.download_as_bytearray()
+        
+        # Получаем caption или используем дефолтный текст
+        user_text = (update.message.caption or "").strip() or "что на этой картинке?"
+        
+        logger.info(f"User {user_id} sent photo with caption: {user_text[:50]}...")
+        
+        # Получаем актуальный промпт
+        current_personality = self.docs_service.get_personality()
+        current_system_prompt = enrich_prompt(current_personality, {})
+        
+        # Создаём сообщение с изображением
+        image_message = create_image_message(
+            image_bytes=bytes(image_bytes),
+            text=user_text,
+            mime_type="image/jpeg",
+            detail=self.config.image_detail_level
+        )
+        
+        # Получаем историю диалогов (только текст)
+        history = self.db.get_dialogue_history(user_id, limit=10)  # Меньше истории при изображениях
+        
+        # Формируем messages: system + history + image
+        messages = [{"role": "system", "content": current_system_prompt}] + history + [image_message]
+        
+        # Генерация ответа
+        response_text, _ = await self.llm.generate_response(messages)
+        response_text = (response_text or "").strip() or "Хм, не уверена, что поняла."
+        
+        # Считаем токены
+        user_tokens_now = self.llm.count_tokens_text(user_text) + self.llm._calculate_image_tokens("")
+        output_tokens_now = self.llm.count_tokens_text(response_text)
+        tokens_net = user_tokens_now + output_tokens_now
+        
+        # Отправляем ответ
+        await update.message.reply_text(response_text)
+        
+        # Сохраняем в БД (текст + пометка об изображении)
+        self.db.add_message(user_id, "user", f"[📸 Изображение] {user_text}", 
+                           has_image=True, image_count=1)
+        self.db.add_message(user_id, "assistant", response_text, tokens_net)
+        
+        # Проверяем лимиты после
+        if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
+            usage = self.db.get_user_usage(user_id)
+            if (usage["messages"] >= self.config.free_messages_limit) or \
+               (usage["tokens"] >= self.config.free_tokens_limit) or \
+               (usage["images"] >= self.config.free_images_limit):
+                await update.message.reply_text(
+                    "⚠️ `Вы исчерпали бесплатный лимит`\n\n"
+                    "🌟 Для продолжения общения подключите /subscribe",
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=self.subscription_manager.get_subscription_keyboard()
+                )
+        
+        logger.info(f"Alina (vision): {response_text[:50]}... (tokens: {tokens_net}, images: 1)")
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Main message handler with LLM integration"""
@@ -343,10 +426,12 @@ class AlinaBot:
         """Check if user has reached free usage limits"""
         usage = self.db.get_user_usage(user_id)
         
-        if usage["messages"] >= self.config.free_messages_limit or usage["tokens"] >= self.config.free_tokens_limit:
+        if usage["messages"] >= self.config.free_messages_limit or \
+           usage["tokens"] >= self.config.free_tokens_limit or \
+           usage["images"] >= self.config.free_images_limit:
             
             await update.message.reply_text(
-                    "⚠️ `Вы исчерпали бесплатный лимит сообщений`\n\n"
+                    "⚠️ `Вы исчерпали бесплатный лимит`\n\n"
                     "🌟 Для продолжения общения подключите /subscribe",
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=self.subscription_manager.get_subscription_keyboard()
@@ -396,10 +481,11 @@ class AlinaBot:
             CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"),
             PreCheckoutQueryHandler(self.pre_checkout_callback),
             MessageHandler(filters.SUCCESSFUL_PAYMENT, self.successful_payment),
+            MessageHandler(filters.PHOTO, self.handle_photo),
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message),
         ])
         
-        logger.info("Алина запущена")
+        logger.info("Алина запущена с поддержкой изображений! 📸")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
