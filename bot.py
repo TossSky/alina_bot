@@ -168,7 +168,7 @@ class AlinaBot:
         for question, _ in page_items:
             # Умное укорачивание - режем по словам если слишком длинно
             button_text = question
-            max_length = 35  # Максимальная длина для читабельности
+            max_length = 80  # Максимальная длина для читабельности
             
             if len(button_text) > max_length:
                 # Обрезаем по словам
@@ -240,7 +240,7 @@ class AlinaBot:
         for question, answer in page_items:
             # Умное укорачивание
             button_text = question
-            max_length = 35
+            max_length = 80
             
             if len(button_text) > max_length:
                 words = button_text[:max_length].rsplit(' ', 1)
