@@ -237,7 +237,10 @@ class AlinaBot:
         page_items = faq_items[start_idx:end_idx]
         
         # Ищем вопрос по совпадению текста
-        for question, answer in page_items:
+        logger.info(f"FAQ: Searching for button text: '{text}'")
+        logger.info(f"FAQ: Page {page}, items count: {len(page_items)}")
+        
+        for idx, (question, answer) in enumerate(page_items):
             # Умное укорачивание
             button_text = question
             max_length = 80
@@ -246,9 +249,11 @@ class AlinaBot:
                 words = button_text[:max_length].rsplit(' ', 1)
                 button_text = words[0] + "..."
             
+            logger.info(f"FAQ: Checking item {idx}: button='{button_text}', question='{question[:50]}...'")
+            
             if text == button_text or text == question:
                 # Формируем ответ: вопрос пользователя + ответ без дополнительных префиксов
-                response_text = f"❓ {question}\n\n{answer}"
+                response_text = f"❓ Вы: {question}\n\n{answer}"
                 
                 # Клавиатура с кнопкой возврата
                 keyboard = [[KeyboardButton("⬅️ Назад к FAQ")], [KeyboardButton("❌ Закрыть")]]
@@ -334,9 +339,8 @@ class AlinaBot:
         output_tokens_now = self.llm.count_tokens_text(response_text)
         tokens_net = user_tokens_now + output_tokens_now
 
-        # Формируем полное сообщение: вопрос пользователя + ответ Алины
-        full_response = f"❓ {user_message}\n\n💬 Алина: {response_text}"
-        await update.message.reply_text(full_response)
+        # Отправляем только ответ Алины
+        await update.message.reply_text(response_text)
 
         
         self.db.add_message(user_id, "assistant", response_text, tokens_net)
