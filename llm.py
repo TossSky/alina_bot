@@ -29,7 +29,7 @@ class AlinaLLM:
     def __init__(
         self, 
         api_key: str, 
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-5-chat-latest",
         use_proxy: bool = True,
         proxy_url: Optional[str] = None
     ):

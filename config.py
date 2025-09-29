@@ -20,7 +20,7 @@ class Config:
         
         # OpenAI API
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
-        self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        self.openai_model = os.getenv("OPENAI_MODEL", "gpt-5-chat-latest")
         self.openai_base_url = os.getenv("OPENAI_BASE_URL", "")
         
         # Proxy
