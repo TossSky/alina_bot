@@ -149,11 +149,6 @@ class AlinaBot:
             await update.message.reply_text("❌ FAQ пуст. Попробуйте позже.")
             return
         
-        # Убираем старую Reply Keyboard если она есть
-        loading_msg = await update.message.reply_text(
-            "📖 Загружаю FAQ...",
-            reply_markup=ReplyKeyboardRemove()
-        )
         
         # Сохраняем FAQ в user_data
         context.user_data['faq_items'] = faq_items
