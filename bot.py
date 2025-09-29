@@ -127,8 +127,8 @@ class AlinaBot:
                 parse_mode=ParseMode.MARKDOWN
             )
     
-    async def clear_keyboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /clear_keyboard command - remove reply keyboard"""
+    async def clean(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /clean command - remove reply keyboard"""
         await update.message.reply_text(
             "✅ Клавиатура очищена",
             reply_markup=ReplyKeyboardRemove()
@@ -153,11 +153,11 @@ class AlinaBot:
         context.user_data['faq_items'] = faq_items
         context.user_data['faq_page'] = 0
         
-        # Показываем Inline клавиатуру (с удалением старой Reply Keyboard)
-        await self._show_faq_inline(update.message, context, page=0, remove_reply_keyboard=True)
+        # Показываем Inline клавиатуру
+        await self._show_faq_inline(update.message, context, page=0)
         logger.info(f"FAQ shown to user {update.effective_user.id}")
     
-    async def _show_faq_inline(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, edit: bool = False, remove_reply_keyboard: bool = False):
+    async def _show_faq_inline(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, edit: bool = False):
         """Показать Inline клавиатуру FAQ"""
         faq_items = context.user_data.get('faq_items', [])
         
@@ -206,26 +206,7 @@ class AlinaBot:
         if edit:
             await message.edit_text(faq_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
         else:
-            # Если нужно убрать старую Reply Keyboard
-            if remove_reply_keyboard:
-                # Отправляем FAQ с Inline клавиатурой
-                await message.reply_text(
-                    faq_text,
-                    reply_markup=reply_markup,
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                # Отправляем техническое сообщение для удаления Reply Keyboard
-                remove_msg = await message.reply_text(
-                    ".",
-                    reply_markup=ReplyKeyboardRemove()
-                )
-                # Сразу удаляем это техническое сообщение
-                try:
-                    await remove_msg.delete()
-                except Exception:
-                    pass
-            else:
-                await message.reply_text(faq_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text(faq_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     
     async def handle_faq_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработка нажатий на Inline кнопки FAQ"""
@@ -409,7 +390,7 @@ class AlinaBot:
             CommandHandler("reset_limits", self.reset_limits),
             CommandHandler("subscribe", self.subscribe),
             CommandHandler("subscription", self.subscription_status),
-            CommandHandler("clear_keyboard", self.clear_keyboard),
+            CommandHandler("clean", self.clean),
             CommandHandler("faq", self.faq),
             CallbackQueryHandler(self.handle_faq_callback, pattern="^faq_"),
             CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"),
