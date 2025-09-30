@@ -131,37 +131,43 @@ class AlinaBot:
         user_id = update.effective_user.id
         context.bot_data['subscription_manager'] = self.subscription_manager
 
-        # Готовим статус с корректной разметкой (MarkdownV2) и склонением дней
+        # Текст статуса (MarkdownV2)
         info = self.subscription_manager.format_subscription_info(user_id)
 
-        # Клавиатура выбора способа оплаты + кнопка закрытия
-        keyboard = self.subscription_manager.get_payment_method_keyboard()
-        keyboard.inline_keyboard.append([InlineKeyboardButton("❌ Закрыть", callback_data="close_subscribe")])
+        # Базовая клавиатура из менеджера
+        base_markup = self.subscription_manager.get_payment_method_keyboard()
+
+        # Пересобираем список рядов (tuple -> list) и добавляем кнопку "Закрыть"
+        rows = [list(row) for row in base_markup.inline_keyboard]
+        rows.append([InlineKeyboardButton("❌ Закрыть", callback_data="close_subscribe")])
+        reply_markup = InlineKeyboardMarkup(rows)
 
         chat_id = update.effective_chat.id
 
-        # 1) Сначала отправляем сообщение бота (НЕ reply_text), чтобы оно появилось до удаления команды
+        # 1) Сначала отправляем сообщение бота
         try:
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=info + "\n\nВыберите способ оплаты:",
                 parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard
+                reply_markup=reply_markup
             )
         except Exception as e:
-            # Если внезапно упадёт парсинг MarkdownV2, шлём безопасный фолбек без форматирования
             logger.exception(f"Ошибка при отправке /subscribe: {e}")
+            # Фолбек без MarkdownV2, если вдруг заругается на разметку
+            safe_text = (info + "\n\nВыберите способ оплаты:").replace("_", " ").replace("*", " ")
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=(info + "\n\nВыберите способ оплаты:").replace("_", " ").replace("*", " "),
-                reply_markup=keyboard
+                text=safe_text,
+                reply_markup=reply_markup
             )
 
-        # 2) Затем удаляем сообщение пользователя с командой /subscribe
+        # 2) Потом удаляем сообщение пользователя с командой
         try:
             await update.message.delete()
         except Exception as e:
             logger.warning(f"Не удалось удалить команду /subscribe: {e}")
+
     
     async def subscription_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscription command - check subscription status"""
