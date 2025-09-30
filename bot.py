@@ -447,13 +447,17 @@ class AlinaBot:
         logger.info("Initializing background tasks...")
         self.docs_service.start_periodic_updates()
         
-        # Start payment status checker
+        # Store managers in bot_data
         context = application.bot_data
         context['subscription_manager'] = self.subscription_manager
         context['yookassa_client'] = self.yookassa_client
         
-        # Start checker with bot instance
-        self.payment_checker.start(application.bot)
+        # Start payment checker only if not using webhook
+        if not self.config.use_webhook:
+            logger.info("🔄 Starting payment status checker (polling mode)")
+            self.payment_checker.start(application.bot)
+        else:
+            logger.info("📡 Payment checker disabled (webhook mode)")
         
         logger.info("Background tasks started")
     
@@ -461,7 +465,11 @@ class AlinaBot:
         """Called before bot shutdown - cleanup background tasks"""
         logger.info("Stopping background tasks...")
         self.docs_service.stop_periodic_updates()
-        self.payment_checker.stop()
+        
+        # Stop payment checker if it was running
+        if not self.config.use_webhook:
+            self.payment_checker.stop()
+        
         logger.info("Background tasks stopped")
     
     def run(self) -> None:
@@ -470,7 +478,7 @@ class AlinaBot:
             logger.error("Missing required configuration!")
             return
         
-        app = (Application
+        self.application = (Application
             .builder()
             .token(self.config.telegram_bot_token)
             .concurrent_updates(False)
@@ -478,11 +486,11 @@ class AlinaBot:
             .post_shutdown(self.post_shutdown)
             .build())
 
-        app.bot_data['subscription_manager'] = self.subscription_manager
-        app.bot_data['yookassa_client'] = self.yookassa_client
+        self.application.bot_data['subscription_manager'] = self.subscription_manager
+        self.application.bot_data['yookassa_client'] = self.yookassa_client
         
         # Register handlers
-        app.add_handlers([
+        self.application.add_handlers([
             CommandHandler("start", self.start),
             CommandHandler("restart", self.restart),
             CommandHandler("reset_limits", self.reset_limits),
@@ -497,7 +505,7 @@ class AlinaBot:
         ])
         
         logger.info("Алина запущена с поддержкой изображений! 📸")
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        self.application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 def main():

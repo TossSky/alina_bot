@@ -12,3 +12,6 @@ pydantic>=2.0.0
 
 # Payments
 yookassa>=3.0.0
+
+# Webhook server
+flask>=3.0.0

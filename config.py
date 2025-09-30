@@ -36,9 +36,10 @@ class Config:
         # Admin IDs
         self.admin_ids = self.ADMIN_IDS
         
-        # Payments & Subscriptions
+        # Payments & Subscriptions (YooKassa)
         self.yookassa_shop_id = os.getenv("YOOKASSA_SHOP_ID", "")
         self.yookassa_secret_key = os.getenv("YOOKASSA_SECRET_KEY", "test_G61l2gtd7V3fmf3lHcNsncRQcyuLUdpDFyZlx_Tm-CA")
+        self.use_webhook = os.getenv("USE_WEBHOOK", "true").lower() == "true"  # Use webhook instead of polling
         self.subscription_required = os.getenv("SUBSCRIPTION_REQUIRED", "true").lower() == "true"
         self.free_messages_limit = int(os.getenv("FREE_MESSAGES_LIMIT", "15"))
         self.free_tokens_limit = int(os.getenv("FREE_TOKENS_LIMIT", "2000"))
