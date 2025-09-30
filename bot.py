@@ -1,4 +1,5 @@
 """Alina Bot - Main Application Module"""
+from datetime import datetime
 
 import logging
 import os
@@ -162,18 +163,47 @@ class AlinaBot:
 
     
     async def subscription_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /subscription command - check subscription status"""
+        """Handle /subscription command - check subscription status (HTML formatting)"""
         user_id = update.effective_user.id
 
-        # Готовый текст (с уже корректной разметкой MarkdownV2) берём из payments.format_subscription_info
-        info = self.subscription_manager.format_subscription_info(user_id)
+        sub = self.subscription_manager.get_active_subscription(user_id)
+        if sub:
+            end_date = datetime.fromisoformat(sub["end_date"])
+            days_left = max(0, (end_date - datetime.now()).days)
 
-        # 1) Сначала отправляем новое сообщение БОТА (не reply_text!)
+            # Склонение
+            n = abs(days_left)
+            n10, n100 = n % 10, n % 100
+            if n10 == 1 and n100 != 11:
+                days_word = "день"
+            elif 2 <= n10 <= 4 and not (12 <= n100 <= 14):
+                days_word = "дня"
+            else:
+                days_word = "дней"
+
+            text = (
+                "✅ <u>У вас есть активная подписка</u>\n\n"
+                f"До конца подписки осталось <b><i>{days_left} {days_word}</i></b>"
+            )
+        else:
+            text = (
+                "✖️ <u>Сейчас у вас нет активной подписки</u>\n\n"
+                "Используйте /subscribe для оформления подписки"
+            )
+
+        # 1) Сначала отправляем новое сообщение бота
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=info,
-            parse_mode=ParseMode.MARKDOWN_V2
+            text=text,
+            parse_mode=ParseMode.HTML
         )
+
+        # 2) Потом удаляем команду пользователя
+        try:
+            await update.message.delete()
+        except Exception as e:
+            logger.warning(f"Не удалось удалить команду /subscription: {e}")
+
 
         # 2) Потом удаляем команду пользователя
         try:
