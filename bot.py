@@ -128,45 +128,37 @@ class AlinaBot:
 
     async def subscribe(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscribe command"""
-        user_id = update.effective_user.id
-        context.bot_data['subscription_manager'] = self.subscription_manager
-
-        # Текст статуса (MarkdownV2)
-        info = self.subscription_manager.format_subscription_info(user_id)
-
-        # Базовая клавиатура из менеджера
-        base_markup = self.subscription_manager.get_payment_method_keyboard()
-
-        # Пересобираем список рядов (tuple -> list) и добавляем кнопку "Закрыть"
-        rows = [list(row) for row in base_markup.inline_keyboard]
-        rows.append([InlineKeyboardButton("❌ Закрыть", callback_data="close_subscribe")])
-        reply_markup = InlineKeyboardMarkup(rows)
-
-        chat_id = update.effective_chat.id
-
-        # 1) Сначала отправляем сообщение бота
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=info + "\n\nВыберите способ оплаты:",
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=reply_markup
-            )
-        except Exception as e:
-            logger.exception(f"Ошибка при отправке /subscribe: {e}")
-            # Фолбек без MarkdownV2, если вдруг заругается на разметку
-            safe_text = (info + "\n\nВыберите способ оплаты:").replace("_", " ").replace("*", " ")
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=safe_text,
-                reply_markup=reply_markup
-            )
-
-        # 2) Потом удаляем сообщение пользователя с командой
+        # Сначала удаляем команду пользователя
         try:
             await update.message.delete()
         except Exception as e:
             logger.warning(f"Не удалось удалить команду /subscribe: {e}")
+
+        user_id = update.effective_user.id
+        context.bot_data['subscription_manager'] = self.subscription_manager
+
+        if self.subscription_manager.has_active_subscription(user_id):
+            info = self.subscription_manager.format_subscription_info(user_id)
+            text = f"✅ {info}\n\nХотите продлить подписку заранее?"
+        else:
+            text = "🌟 *Оформление подписки на бота Алину*"
+
+        # Берём базовую клавиатуру из менеджера
+        base_markup = self.subscription_manager.get_payment_method_keyboard()
+
+        # Пересобираем в список и добавляем кнопку ❌
+        rows = [list(row) for row in base_markup.inline_keyboard]
+        rows.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])
+        reply_markup = InlineKeyboardMarkup(rows)
+
+        # Отправляем сообщение
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=text + "\n\nВыберите способ оплаты:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
 
     
     async def subscription_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
