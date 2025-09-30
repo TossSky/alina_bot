@@ -199,7 +199,7 @@ def encode_image_to_base64(image_bytes: bytes) -> str:
     return base64.b64encode(image_bytes).decode('utf-8')
 
 
-def create_image_message(image_bytes: bytes, text: str = " ", 
+def create_image_message(image_bytes: bytes, text: str = "реагируй коротко и живо, как в переписке. не описывай подробно, а просто скажи что думаешь или чувствуешь", 
                          mime_type: str = "image/jpeg", detail: str = "auto") -> Dict:
     """
     Create a message with image content in OpenAI Chat Completions format

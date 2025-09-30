@@ -304,7 +304,7 @@ class AlinaBot:
         image_bytes = await file.download_as_bytearray()
         
         # Получаем caption или используем дефолтный текст
-        user_text = (update.message.caption or "").strip() or " "
+        user_text = (update.message.caption or "").strip() or "реагируй коротко и живо, как в переписке. не описывай подробно, а просто скажи что думаешь или чувствуешь"
         
         logger.info(f"User {user_id} sent photo with caption: {user_text[:50]}...")
         
