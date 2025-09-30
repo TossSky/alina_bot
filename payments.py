@@ -457,9 +457,44 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
     
     # Обработка выбора конкретного плана
     if data.startswith("subscribe_stars_"):
-        # Оплата звёздочками
+        # Оплата звёздочками - сразу отправляем инвойс
         plan_type = data.replace("subscribe_stars_", "")
-        await create_stars_invoice(update, context, plan_type)
+        manager = context.bot_data.get('subscription_manager')
+        
+        if not manager:
+            await query.message.reply_text("Ошибка: система подписок не инициализирована")
+            return
+        
+        if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
+            await query.message.reply_text("Неверный тип подписки")
+            return
+        
+        plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
+        user_id = update.effective_user.id
+        
+        # Удаляем сообщение с кнопками выбора
+        try:
+            await query.message.delete()
+        except Exception as e:
+            logger.warning(f"Could not delete message: {e}")
+        
+        # Отправляем инвойс для оплаты звёздочками
+        await context.bot.send_invoice(
+            chat_id=update.effective_chat.id,
+            title=f"Подписка на бота Алину - {plan['name']}",
+            description=plan["description"],
+            payload=f"stars_{plan_type}_{user_id}",
+            provider_token="",  # Пустой для Stars
+            currency="XTR",  # Telegram Stars
+            prices=[LabeledPrice(label=plan["description"], amount=plan["price_stars"])],
+            photo_url="https://images.unsplash.com/photo-1573164713714-d95e436ab8d6?w=400",
+            photo_width=400,
+            photo_height=250,
+            is_flexible=False,
+            start_parameter=f"subscription-{plan_type}",
+        )
+        
+        logger.info(f"Created Stars invoice for user {user_id}, plan {plan_type}, amount {plan['price_stars']} stars")
         return
     
     elif data.startswith("subscribe_rub_"):
