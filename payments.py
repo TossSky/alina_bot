@@ -211,6 +211,85 @@ class SubscriptionManager:
             keyboard.append([button])
         return InlineKeyboardMarkup(keyboard)
     
+    def get_subscription_keyboard_for_mode(self, mode: str) -> InlineKeyboardMarkup:
+        """
+        mode: 'rub' or 'stars'
+        Возвращает InlineKeyboardMarkup с кнопками тарифов.
+        Для рублёвой оплаты callback == subscribe_<plan>
+        Для звёздочной оплаты callback == stars_<plan>
+        """
+        keyboard = []
+        for plan_id, plan in self.SUBSCRIPTION_PLANS.items():
+            if mode == "stars":
+                # Тут можно перевести цену в звёздочки: примерно 1 звёздочка = 10 руб (пример)
+                # Настрой коэффициент по необходимости
+                COEF = 10.0
+                stars_price = int(round(plan["price"] / COEF))
+                text = f"{plan['name']} — {stars_price} ⭐"
+                callback = f"stars_{plan_id}"
+            else:
+                text = f"{plan['name']} — {plan['price']:.0f} ₽"
+                callback = f"subscribe_{plan_id}"
+            button = InlineKeyboardButton(text, callback_data=callback)
+            keyboard.append([button])
+        # Добавим кнопку назад/отмена
+        keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="paymode_back")])
+        return InlineKeyboardMarkup(keyboard)
+
+    def try_pay_with_stars(self, user_id: int, plan_type: str) -> bool:
+        """
+        Попытаться списать звёздочки и активировать подписку.
+        Возвращает True при успешной оплате и активации.
+        Ожидается, что self.db предоставляет методы:
+          - get_user_stars(user_id) -> int
+          - adjust_user_stars(user_id, delta) -> True/False (delta отрицательное для списания)
+        Если таких методов нет — вернёт False.
+        """
+        # коэффициент конверсии: сколько рублей = 1 звёздочка (настрой)
+        COEF = 10.0
+        if plan_type not in self.SUBSCRIPTION_PLANS:
+            logger.error("Unknown plan for stars payment: %s", plan_type)
+            return False
+
+        plan = self.SUBSCRIPTION_PLANS[plan_type]
+        stars_cost = int(round(plan["price"] / COEF))
+
+        # проверяем наличие методов у db
+        if not hasattr(self.db, "get_user_stars") or not hasattr(self.db, "adjust_user_stars"):
+            logger.warning("DB doesn't implement star-balance methods (get_user_stars/adjust_user_stars)")
+            return False
+
+        try:
+            balance = self.db.get_user_stars(user_id)
+            if balance is None:
+                balance = 0
+        except Exception as e:
+            logger.error("Error fetching stars balance for %s: %s", user_id, e)
+            return False
+
+        if balance < stars_cost:
+            logger.info("User %s doesn't have enough stars: %s < %s", user_id, balance, stars_cost)
+            return False
+
+        # Списание
+        ok = self.db.adjust_user_stars(user_id, -stars_cost)
+        if not ok:
+            logger.error("Failed to adjust stars for user %s", user_id)
+            return False
+
+        # Активация подписки (как при обычной оплате)
+        activated = self.add_subscription(user_id, plan_type, payment_id=None)
+        if activated:
+            # Сохраним запись в subscriptions таблице: payment_id остаётся NULL, можно записать 'stars:<txid>'
+            # Если хочешь — можно занести лог в отдельную таблицу операций
+            logger.info("Activated subscription for %s via stars (%s ⭐)", user_id, stars_cost)
+            return True
+
+        # Если активация не удалась — вернуть звёздочки обратно
+        self.db.adjust_user_stars(user_id, stars_cost)
+        return False
+
+
     def format_subscription_info(self, user_id: int) -> str:
         """Format subscription status message"""
         subscription = self.get_active_subscription(user_id)

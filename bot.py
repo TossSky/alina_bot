@@ -116,17 +116,21 @@ class AlinaBot:
         """Handle /subscribe command"""
         user_id = update.effective_user.id
         context.bot_data['subscription_manager'] = self.subscription_manager
-        
+
+        # if user already has active subscription - still show mode choice, but text will include info
         if self.subscription_manager.has_active_subscription(user_id):
             info = self.subscription_manager.format_subscription_info(user_id)
-            text = f"✅ {info}\n\nХотите продлить подписку заранее? Выберите новый период:"
+            text = f"✅ {info}\n\nВыберите способ оплаты для продления подписки:"
         else:
-            text = "🌟 Оформите подписку на бота Алину!\n\nВыберите удобный период:"
-        
-        await update.message.reply_text(
-            text,
-            reply_markup=self.subscription_manager.get_subscription_keyboard()
-        )
+            text = "🌟 Оформите подписку на бота Алину!\n\nВыберите способ оплаты:"
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⭐ Оплатить звёздочками", callback_data="paymode_stars")],
+            [InlineKeyboardButton("💳 Оплатить рублями", callback_data="paymode_rub")],
+        ])
+
+        await update.message.reply_text(text, reply_markup=keyboard)
+
     
     async def subscription_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscription command - check subscription status"""
@@ -260,7 +264,85 @@ class AlinaBot:
                 
                 await query.message.edit_text(response_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
-    
+    async def handle_paymode_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle payment mode selection (stars / rubles)"""
+        query = update.callback_query
+        await query.answer()
+
+        data = query.data  # e.g. paymode_stars, paymode_rub, paymode_back
+        if data == "paymode_back":
+            # вернуться к первоначальному сообщению
+            await query.message.edit_text(
+                "Выберите способ оплаты:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⭐ Оплатить звёздочками", callback_data="paymode_stars")],
+                    [InlineKeyboardButton("💳 Оплатить рублями", callback_data="paymode_rub")],
+                ])
+            )
+            return
+
+        manager: SubscriptionManager = context.bot_data.get('subscription_manager')
+        if not manager:
+            await query.message.reply_text("Ошибка: менеджер подписок не инициализирован")
+            return
+
+        if data == "paymode_stars":
+            # Показать клавиатуру тарифов для звёздочек
+            reply_markup = manager.get_subscription_keyboard_for_mode("stars")
+            await query.message.edit_text("Выберите тариф (оплата звёздочками):", reply_markup=reply_markup)
+        elif data == "paymode_rub":
+            # Показать клавиатуру тарифов для рублёвой оплаты (существующие callback'ы subscribe_<plan>)
+            reply_markup = manager.get_subscription_keyboard_for_mode("rub")
+            await query.message.edit_text("Выберите тариф (оплата рублями):", reply_markup=reply_markup)
+
+    async def handle_stars_subscribe_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle callback when user chooses to pay with stars (callback like stars_month)"""
+        query = update.callback_query
+        await query.answer()
+
+        data = query.data  # e.g. stars_month
+        if not data.startswith("stars_"):
+            return
+
+        plan_type = data.split("_", 1)[1]
+        manager: SubscriptionManager = context.bot_data.get('subscription_manager')
+        if not manager:
+            await query.message.reply_text("Ошибка: менеджер подписок не инициализирован")
+            return
+
+        user_id = query.from_user.id
+
+        # Попробуем списать звёздочки и активировать подписку
+        ok = manager.try_pay_with_stars(user_id, plan_type)
+        if ok:
+            plan = manager.SUBSCRIPTION_PLANS.get(plan_type, {})
+            await query.message.edit_text(
+                f"✅ Оплата звёздочками успешна!\n\n"
+                f"Ваша подписка '{plan.get('name', plan_type)}' активирована."
+            )
+        else:
+            # Узнаём баланс (если есть метод) и покажем подсказку
+            balance = None
+            if hasattr(manager.db, "get_user_stars"):
+                try:
+                    balance = manager.db.get_user_stars(user_id)
+                except Exception:
+                    balance = None
+
+            if balance is None:
+                await query.message.reply_text(
+                    "Не удалось провести оплату звёздочками. Возможно, функционал звёздочек не настроен.\n"
+                    "Свяжитесь с поддержкой или попробуйте оплатить рублями."
+                )
+            else:
+                # Получим требуемую сумму в звёздочках (как высчитывается в try_pay_with_stars)
+                COEF = 10.0
+                plan = manager.SUBSCRIPTION_PLANS.get(plan_type, {})
+                stars_cost = int(round(plan["price"] / COEF))
+                await query.message.reply_text(
+                    f"У вас {balance} ⭐, а требуется {stars_cost} ⭐ для тарифа '{plan.get('name')}'.\n"
+                    "Пополните звёздочки или оплатите рублями."
+                )
 
     
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -499,6 +581,8 @@ class AlinaBot:
             CommandHandler("clean", self.clean),
             CommandHandler("faq", self.faq),
             CallbackQueryHandler(self.handle_faq_callback, pattern="^faq_"),
+            CallbackQueryHandler(self.handle_paymode_callback, pattern="^paymode_"),
+            CallbackQueryHandler(self.handle_stars_subscribe_callback, pattern="^stars_"),
             CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"),
             MessageHandler(filters.PHOTO, self.handle_photo),
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message),
