@@ -71,7 +71,15 @@ class DialogueDB:
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
-            
+            # Таблица баланса звёздочек
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_stars (
+                    user_id INTEGER PRIMARY KEY,
+                    stars INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # Index for fast queries
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_messages_user_timestamp
@@ -99,6 +107,46 @@ class DialogueDB:
             except sqlite3.OperationalError:
                 pass
     
+    # ---- Star balance methods ----
+    def get_user_stars(self, user_id: int) -> int:
+        """Return integer number of stars for user (0 if no record)."""
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT stars FROM user_stars WHERE user_id = ?", (user_id,))
+            row = cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+
+    def adjust_user_stars(self, user_id: int, delta: int) -> bool:
+        """
+        Adjust star balance by delta (can be negative). 
+        Returns True on success, False if not enough stars or DB error.
+        """
+        if delta == 0:
+            return True
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            # get current
+            cur.execute("SELECT stars FROM user_stars WHERE user_id = ?", (user_id,))
+            row = cur.fetchone()
+            if row:
+                current = int(row[0] or 0)
+                new = current + delta
+                if new < 0:
+                    return False
+                cur.execute(
+                    "UPDATE user_stars SET stars = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    (new, user_id)
+                )
+            else:
+                if delta < 0:
+                    return False
+                cur.execute(
+                    "INSERT INTO user_stars (user_id, stars) VALUES (?, ?)",
+                    (user_id, delta)
+                )
+            return True
+
+
     def get_or_create_user(self, user_id: int) -> Dict:
         """Get or create user record"""
         with self._get_connection() as conn:
