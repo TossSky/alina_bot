@@ -300,9 +300,6 @@ async def create_stars_invoice(
         provider_token="",  # Empty for Stars
         currency="XTR",  # Telegram Stars currency
         prices=[LabeledPrice(label=plan["description"], amount=plan["price_stars"])],
-        photo_url="https://images.unsplash.com/photo-1573164713714-d95e436ab8d6?w=400",
-        photo_width=400,
-        photo_height=250,
         is_flexible=False,
         start_parameter=f"subscription-{plan_type}",
     )
