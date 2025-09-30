@@ -427,11 +427,23 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
     # Обработка выбора способа оплаты
     if data == "payment_method_stars":
         manager = context.bot_data.get('subscription_manager')
+        # Создаем специальную клавиатуру для звездочек, которая сразу создаст инвойс
+        keyboard = []
+        for plan_id, plan in SubscriptionManager.SUBSCRIPTION_PLANS.items():
+            price = plan["price_stars"]
+            button = InlineKeyboardButton(
+                f"{plan['name']} - {price} ⭐",
+                callback_data=f"stars_direct_{plan_id}"
+            )
+            keyboard.append([button])
+        
+        keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_payment_methods")])
+        
         await query.message.edit_text(
             "⭐ *Оплата звёздочками Telegram*\n\n"
             "Выберите период подписки:",
             parse_mode="Markdown",
-            reply_markup=manager.get_subscription_keyboard("stars")
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
     
@@ -455,7 +467,49 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
         )
         return
     
-    # Обработка выбора конкретного плана
+    # Обработка прямого выбора плана для звездочек (новый обработчик)
+    if data.startswith("stars_direct_"):
+        plan_type = data.replace("stars_direct_", "")
+        manager = context.bot_data.get('subscription_manager')
+        
+        if not manager:
+            await query.answer("Ошибка: система подписок не инициализирована", show_alert=True)
+            return
+        
+        if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
+            await query.answer("Неверный тип подписки", show_alert=True)
+            return
+        
+        plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
+        user_id = update.effective_user.id
+        
+        # Удаляем сообщение с кнопками
+        try:
+            await query.message.delete()
+        except:
+            pass
+        
+        # Отправляем инвойс для оплаты звёздочками
+        await context.bot.send_invoice(
+            chat_id=update.effective_chat.id,
+            title=f"Подписка на бота Алину - {plan['name']}",
+            description=plan["description"],
+            payload=f"stars_{plan_type}_{user_id}",
+            provider_token="",  # Пустой для Stars
+            currency="XTR",  # Telegram Stars
+            prices=[LabeledPrice(label=plan["description"], amount=plan["price_stars"])],
+            photo_url="https://images.unsplash.com/photo-1573164713714-d95e436ab8d6?w=400",
+            photo_width=400,
+            photo_height=250,
+            is_flexible=False,
+            start_parameter=f"subscription-{plan_type}",
+        )
+        
+        await query.answer()
+        logger.info(f"Created Stars invoice for user {user_id}, plan {plan_type}, amount {plan['price_stars']} stars")
+        return
+    
+    # Обработка выбора конкретного плана (старый обработчик для обратной совместимости)
     if data.startswith("subscribe_stars_"):
         # Оплата звёздочками - сразу отправляем инвойс
         plan_type = data.replace("subscribe_stars_", "")

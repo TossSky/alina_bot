@@ -506,7 +506,7 @@ class AlinaBot:
             CommandHandler("clean", self.clean),
             CommandHandler("faq", self.faq),
             CallbackQueryHandler(self.handle_faq_callback, pattern="^faq_"),
-            CallbackQueryHandler(handle_subscribe_callback, pattern="^(subscribe_|payment_method_|back_to_payment_methods)"),
+            CallbackQueryHandler(handle_subscribe_callback, pattern="^(subscribe_|payment_method_|back_to_payment_methods|stars_direct_)"),
             PreCheckoutQueryHandler(handle_stars_pre_checkout),
             MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_stars_successful_payment),
             MessageHandler(filters.PHOTO, self.handle_photo),
