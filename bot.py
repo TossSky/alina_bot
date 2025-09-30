@@ -21,7 +21,13 @@ from config import Config
 from database import DialogueDB
 from google_docs_service import get_docs_service
 from llm import AlinaLLM, create_image_message, get_image_hash
-from payments import SubscriptionManager, handle_subscribe_callback, handle_start_payment
+from payments import (
+    SubscriptionManager,
+    handle_subscribe_callback,
+    handle_start_payment,
+    handle_stars_pre_checkout,
+    handle_stars_successful_payment,
+)
 from payment_checker import PaymentStatusChecker
 from yookassa_integration import YooKassaClient
 from personality import ALINA_PERSONALITY, enrich_prompt
@@ -119,13 +125,14 @@ class AlinaBot:
         
         if self.subscription_manager.has_active_subscription(user_id):
             info = self.subscription_manager.format_subscription_info(user_id)
-            text = f"✅ {info}\n\nХотите продлить подписку заранее? Выберите новый период:"
+            text = f"✅ {info}\n\nХотите продлить подписку заранее?"
         else:
-            text = "🌟 Оформите подписку на бота Алину!\n\nВыберите удобный период:"
+            text = "🌟 *Оформление подписки на бота Алину*"
         
         await update.message.reply_text(
-            text,
-            reply_markup=self.subscription_manager.get_subscription_keyboard()
+            text + "\n\nВыберите способ оплаты:",
+            parse_mode="Markdown",
+            reply_markup=self.subscription_manager.get_payment_method_keyboard()
         )
     
     async def subscription_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -276,7 +283,7 @@ class AlinaBot:
                     "⚠️ `Вы исчерпали бесплатный лимит изображений`\n\n"
                     "🌟 Для продолжения общения с картинками подключите /subscribe",
                     parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=self.subscription_manager.get_subscription_keyboard()
+                    reply_markup=self.subscription_manager.get_payment_method_keyboard()
                 )
                 return
             
@@ -355,7 +362,7 @@ class AlinaBot:
                     "⚠️ `Вы исчерпали бесплатный лимит`\n\n"
                     "🌟 Для продолжения общения подключите /subscribe",
                     parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=self.subscription_manager.get_subscription_keyboard()
+                    reply_markup=self.subscription_manager.get_payment_method_keyboard()
                 )
         
         logger.info(f"Alina (vision): {response_text[:50]}... (tokens: {tokens_net}, images: 1)")
@@ -418,7 +425,7 @@ class AlinaBot:
                     "⚠️ `Вы исчерпали бесплатный лимит сообщений`\n\n"
                     "🌟 Для продолжения общения подключите /subscribe",
                     parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=self.subscription_manager.get_subscription_keyboard()
+                    reply_markup=self.subscription_manager.get_payment_method_keyboard()
                 )
 
 
@@ -436,7 +443,7 @@ class AlinaBot:
                     "⚠️ `Вы исчерпали бесплатный лимит`\n\n"
                     "🌟 Для продолжения общения подключите /subscribe",
                     parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=self.subscription_manager.get_subscription_keyboard()
+                    reply_markup=self.subscription_manager.get_payment_method_keyboard()
                 )
             return False
         return True
@@ -499,7 +506,9 @@ class AlinaBot:
             CommandHandler("clean", self.clean),
             CommandHandler("faq", self.faq),
             CallbackQueryHandler(self.handle_faq_callback, pattern="^faq_"),
-            CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"),
+            CallbackQueryHandler(handle_subscribe_callback, pattern="^(subscribe_|payment_method_|back_to_payment_methods)"),
+            PreCheckoutQueryHandler(handle_stars_pre_checkout),
+            MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_stars_successful_payment),
             MessageHandler(filters.PHOTO, self.handle_photo),
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message),
         ])
