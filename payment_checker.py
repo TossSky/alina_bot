@@ -6,22 +6,19 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import List, Dict
 
-from telegram.ext import ContextTypes
-
-from config import Config
-from yookassa_integration import YooKassaClient
-
 logger = logging.getLogger(__name__)
 
 
 class PaymentStatusChecker:
     """Periodically checks pending payment statuses"""
     
-    def __init__(self, db_path: str, yookassa_client: YooKassaClient):
+    def __init__(self, db_path: str, yookassa_client, subscription_manager):
         self.db_path = db_path
         self.yookassa = yookassa_client
+        self.subscription_manager = subscription_manager
         self.running = False
         self.task = None
+        self.bot = None
     
     def get_pending_payments(self, minutes: int = 60) -> List[Dict]:
         """Get pending payments created in last N minutes
@@ -49,12 +46,10 @@ class PaymentStatusChecker:
                 for row in rows
             ]
     
-    async def check_payment_statuses(self, context: ContextTypes.DEFAULT_TYPE):
+    async def check_payment_statuses(self):
         """Check all pending payments and process successful ones"""
-        manager = context.bot_data.get('subscription_manager')
-        
-        if not manager:
-            logger.error("Subscription manager not initialized")
+        if not self.bot:
+            logger.error("Bot not set for payment checker")
             return
         
         pending = self.get_pending_payments(minutes=60)
@@ -69,60 +64,70 @@ class PaymentStatusChecker:
             user_id = payment_info["user_id"]
             plan_type = payment_info["plan_type"]
             
-            # Check status in YooKassa
-            status = self.yookassa.get_payment_status(payment_id)
-            
-            if status == "succeeded":
-                # Activate subscription
-                from payments import SubscriptionManager
+            try:
+                # Check status in YooKassa
+                status = self.yookassa.get_payment_status(payment_id)
                 
-                if manager.add_subscription(user_id, plan_type, payment_id):
-                    manager.update_payment_status(payment_id, "succeeded")
+                if status == "succeeded":
+                    # Activate subscription
+                    from payments import SubscriptionManager
                     
-                    plan = SubscriptionManager.SUBSCRIPTION_PLANS.get(plan_type, {})
-                    
-                    # Send success message
-                    try:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=f"✅ *Оплата успешна!*\n\n"
-                                 f"Ваша подписка '{plan.get('name', plan_type)}' активирована.\n"
-                                 f"Срок действия: {plan.get('days', 0)} дней\n\n"
-                                 f"Теперь вы можете пользоваться ботом без ограничений! 💜",
-                            parse_mode="Markdown"
-                        )
-                        logger.info(f"✅ Payment {payment_id} succeeded for user {user_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send message to user {user_id}: {e}")
-            
-            elif status == "canceled":
-                manager.update_payment_status(payment_id, "canceled")
-                logger.info(f"❌ Payment {payment_id} canceled")
+                    if self.subscription_manager.add_subscription(user_id, plan_type, payment_id):
+                        self.subscription_manager.update_payment_status(payment_id, "succeeded")
+                        
+                        plan = SubscriptionManager.SUBSCRIPTION_PLANS.get(plan_type, {})
+                        
+                        # Send success message
+                        try:
+                            await self.bot.send_message(
+                                chat_id=user_id,
+                                text=f"✅ *Оплата успешна!*\n\n"
+                                     f"Ваша подписка '{plan.get('name', plan_type)}' активирована.\n"
+                                     f"Срок действия: {plan.get('days', 0)} дней\n\n"
+                                     f"Теперь вы можете пользоваться ботом без ограничений! 💜",
+                                parse_mode="Markdown"
+                            )
+                            logger.info(f"✅ Payment {payment_id} succeeded for user {user_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to send message to user {user_id}: {e}")
+                
+                elif status == "canceled":
+                    self.subscription_manager.update_payment_status(payment_id, "canceled")
+                    logger.info(f"❌ Payment {payment_id} canceled")
+                
+            except Exception as e:
+                logger.error(f"Error checking payment {payment_id}: {e}")
     
-    async def run_periodic_check(self, context: ContextTypes.DEFAULT_TYPE):
+    async def run_periodic_check(self):
         """Run periodic payment status checks"""
+        logger.info("🔄 Payment checker loop started")
         while self.running:
             try:
-                await self.check_payment_statuses(context)
+                await self.check_payment_statuses()
             except Exception as e:
                 logger.error(f"Error in payment status checker: {e}")
             
             # Check every 30 seconds
             await asyncio.sleep(30)
     
-    def start(self, context: ContextTypes.DEFAULT_TYPE):
-        """Start periodic checking"""
+    def start(self, bot):
+        """Start periodic checking
+        
+        Args:
+            bot: Telegram bot instance
+        """
         if self.running:
             logger.warning("Payment checker already running")
             return
         
+        self.bot = bot
         self.running = True
         
         # Create task in the event loop
         loop = asyncio.get_event_loop()
-        self.task = loop.create_task(self.run_periodic_check(context))
+        self.task = loop.create_task(self.run_periodic_check())
         
-        logger.info("Payment status checker started (checking every 30 seconds)")
+        logger.info("💳 Payment status checker started (checking every 30 seconds)")
     
     def stop(self):
         """Stop periodic checking"""

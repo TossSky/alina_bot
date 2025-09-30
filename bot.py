@@ -54,7 +54,11 @@ class AlinaBot:
             secret_key=self.config.yookassa_secret_key
         )
         self.subscription_manager = SubscriptionManager(self.db, self.yookassa_client)
-        self.payment_checker = PaymentStatusChecker(self.config.db_path, self.yookassa_client)
+        self.payment_checker = PaymentStatusChecker(
+            self.config.db_path,
+            self.yookassa_client,
+            self.subscription_manager
+        )
         self.docs_service = get_docs_service()
         self.system_prompt = enrich_prompt(ALINA_PERSONALITY, {})
     
@@ -448,14 +452,8 @@ class AlinaBot:
         context['subscription_manager'] = self.subscription_manager
         context['yookassa_client'] = self.yookassa_client
         
-        # Create a simple context-like object for the checker
-        class SimpleContext:
-            def __init__(self, bot, bot_data):
-                self.bot = bot
-                self.bot_data = bot_data
-        
-        checker_context = SimpleContext(application.bot, context)
-        self.payment_checker.start(checker_context)
+        # Start checker with bot instance
+        self.payment_checker.start(application.bot)
         
         logger.info("Background tasks started")
     
