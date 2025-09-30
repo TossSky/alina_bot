@@ -9,3 +9,6 @@ httpx>=0.24.0
 
 # Data validation
 pydantic>=2.0.0
+
+# Payments
+yookassa>=3.0.0

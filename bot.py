@@ -21,7 +21,8 @@ from config import Config
 from database import DialogueDB
 from google_docs_service import get_docs_service
 from llm import AlinaLLM, create_image_message, get_image_hash
-from payments import SubscriptionManager, create_invoice, handle_subscribe_callback
+from payments import SubscriptionManager, create_yookassa_payment, handle_subscribe_callback, handle_check_payment_callback
+from yookassa_integration import YooKassaClient
 from personality import ALINA_PERSONALITY, enrich_prompt
 
 # Configure logging
@@ -47,7 +48,11 @@ class AlinaBot:
             use_proxy=self.config.use_proxy,
             proxy_url=self.config.proxy_url,
         )
-        self.subscription_manager = SubscriptionManager(self.db)
+        self.yookassa_client = YooKassaClient(
+            shop_id=self.config.yookassa_shop_id,
+            secret_key=self.config.yookassa_secret_key
+        )
+        self.subscription_manager = SubscriptionManager(self.db, self.yookassa_client)
         self.docs_service = get_docs_service()
         self.system_prompt = enrich_prompt(ALINA_PERSONALITY, {})
     
@@ -240,32 +245,7 @@ class AlinaBot:
                 await query.message.edit_text(response_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
     
-    async def pre_checkout_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle pre-checkout query from payment provider"""
-        await update.pre_checkout_query.answer(ok=True)
-        logger.info(f"Pre-checkout query from user {update.pre_checkout_query.from_user.id}")
-    
-    async def successful_payment(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle successful payment"""
-        user_id = update.effective_user.id
-        payment = update.message.successful_payment
-        
-        plan_type = payment.invoice_payload.split('_')[0] if '_' in payment.invoice_payload else None
-        
-        if plan_type and self.subscription_manager.add_subscription(user_id, plan_type, payment.provider_payment_charge_id):
-            plan = self.subscription_manager.SUBSCRIPTION_PLANS.get(plan_type, {})
-            await update.message.reply_text(
-                f"✅ Спасибо за оплату!\n\n"
-                f"Ваша подписка '{plan.get('name', plan_type)}' активирована.\n"
-                f"Срок действия: {plan.get('days', 0)} дней\n\n"
-                f"Теперь вы можете пользоваться ботом без ограничений! 💜"
-            )
-            logger.info(f"Payment success: User {user_id}, Plan {plan_type}, Amount {payment.total_amount}")
-        else:
-            await update.message.reply_text(
-                "Произошла ошибка при активации подписки. "
-                "Пожалуйста, обратитесь к администратору."
-            )
+
     
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle photo messages with vision"""
@@ -473,6 +453,7 @@ class AlinaBot:
             .build())
 
         app.bot_data['subscription_manager'] = self.subscription_manager
+        app.bot_data['yookassa_client'] = self.yookassa_client
         
         # Register handlers
         app.add_handlers([
@@ -485,8 +466,7 @@ class AlinaBot:
             CommandHandler("faq", self.faq),
             CallbackQueryHandler(self.handle_faq_callback, pattern="^faq_"),
             CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"),
-            PreCheckoutQueryHandler(self.pre_checkout_callback),
-            MessageHandler(filters.SUCCESSFUL_PAYMENT, self.successful_payment),
+            CallbackQueryHandler(handle_check_payment_callback, pattern="^check_payment_"),
             MessageHandler(filters.PHOTO, self.handle_photo),
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message),
         ])
