@@ -299,7 +299,7 @@ async def create_stars_invoice(
         payload=f"stars_{plan_type}_{user_id}",  # Unique payload
         provider_token="",  # Empty for Stars
         currency="XTR",  # Telegram Stars currency
-        prices=[LabeledPrice(label=plan["description"], amount=plan["price_stars"])],
+        prices=[LabeledPrice(label="⭐", amount=plan["price_stars"])],
         is_flexible=False,
         start_parameter=f"subscription-{plan_type}",
     )
@@ -491,11 +491,12 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             description=plan["description"],
             payload=f"stars_{plan_type}_{user_id}",
             provider_token="",  # Пустой для Stars
-            currency="XTR",  # Telegram Stars
-            prices=[LabeledPrice(label=plan["description"], amount=plan["price_stars"])],
+            currency="XTR",     # Telegram Stars
+            prices=[LabeledPrice(label="⭐", amount=plan["price_stars"])],
             is_flexible=False,
             start_parameter=f"subscription-{plan_type}",
         )
+
         
         await query.answer()
         logger.info(f"Created Stars invoice for user {user_id}, plan {plan_type}, amount {plan['price_stars']} stars")
@@ -526,7 +527,7 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             payload=f"stars_{plan_type}_{user_id}",
             provider_token="",  # Пустой для Stars
             currency="XTR",  # Telegram Stars
-            prices=[LabeledPrice(label=plan["description"], amount=plan["price_stars"])],
+            prices=[LabeledPrice(label="⭐", amount=plan["price_stars"])],
             is_flexible=False,
             start_parameter=f"subscription-{plan_type}",
         )
@@ -580,7 +581,7 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             await query.message.delete()
         except:
             pass
-        
+
         await query.message.reply_text(
             f"💳 *{plan['name']} - {plan['price_rub']:.0f} ₽*\n\n"
             f"Нажмите кнопку для перехода к оплате.\n"
