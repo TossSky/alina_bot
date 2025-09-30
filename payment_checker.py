@@ -108,7 +108,7 @@ class PaymentStatusChecker:
                 logger.error(f"Error in payment status checker: {e}")
             
             # Check every 30 seconds
-            await asyncio.sleep(30)
+            await asyncio.sleep(5)
     
     def start(self, bot):
         """Start periodic checking
