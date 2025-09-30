@@ -462,21 +462,15 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
         manager = context.bot_data.get('subscription_manager')
         
         if not manager:
-            await query.message.reply_text("Ошибка: система подписок не инициализирована")
+            await query.answer("Ошибка: система подписок не инициализирована", show_alert=True)
             return
         
         if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
-            await query.message.reply_text("Неверный тип подписки")
+            await query.answer("Неверный тип подписки", show_alert=True)
             return
         
         plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
         user_id = update.effective_user.id
-        
-        # Удаляем сообщение с кнопками выбора
-        try:
-            await query.message.delete()
-        except Exception as e:
-            logger.warning(f"Could not delete message: {e}")
         
         # Отправляем инвойс для оплаты звёздочками
         await context.bot.send_invoice(
@@ -494,6 +488,7 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             start_parameter=f"subscription-{plan_type}",
         )
         
+        await query.answer()
         logger.info(f"Created Stars invoice for user {user_id}, plan {plan_type}, amount {plan['price_stars']} stars")
         return
     
