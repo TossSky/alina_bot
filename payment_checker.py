@@ -29,7 +29,7 @@ class PaymentStatusChecker:
         Returns:
             List of pending payment records
         """
-        cutoff = (datetime.now() - timedelta(minutes=minutes)).isoformat()
+        cutoff = (datetime.now() - timedelta(minutes=minutes)).strftime('%Y-%m-%d %H:%M:%S')
         
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
