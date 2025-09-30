@@ -222,19 +222,25 @@ def create_image_message(image_bytes: bytes, text: str = "", is_duplicate: bool 
     """
     base64_image = encode_image_to_base64(image_bytes)
     
-    # Если текста нет и это не повтор - пустой текст (система сама сгенерирует реакцию)
-    # Если повтор - добавляем контекст
-    if not text and is_duplicate:
-        text = "[пользователь отправил эту же картинку снова]"
-    elif not text:
-        text = ""
+    # Формируем текст с учётом дубликата
+    if is_duplicate:
+        if text:
+            final_text = f"{text}\n\n(кстати, ты уже отправлял эту картинку недавно)"
+        else:
+            final_text = "(эту картинку ты уже отправлял недавно)"
+    else:
+        if text:
+            final_text = text
+        else:
+            # Мягкая инструкция, не перебивающая системный промпт
+            final_text = "(отреагируй живо и естественно, 2-3 предложениями. можешь поделиться мыслями, спросить что-то или высказать мнение)"
     
     return {
         "role": "user",
         "content": [
             {
                 "type": "text",
-                "text": text
+                "text": final_text
             },
             {
                 "type": "image_url",
