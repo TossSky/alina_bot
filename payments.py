@@ -250,28 +250,30 @@ class SubscriptionManager:
         return InlineKeyboardMarkup(keyboard)
     
     def format_subscription_info(self, user_id: int) -> str:
-        """Format subscription status message"""
+        """Format subscription status message (MarkdownV2-ready)"""
         subscription = self.get_active_subscription(user_id)
-        
+
         if not subscription:
-            return "✖️ _Сейчас у вас нет активной подписки_\n\nИспользуйте /subscribe для оформления подписки"
-        
+            # /subscribe и /subscription без активной подписки
+            # Первая строка подчёркнута, вторая — обычная
+            return "✖️ __Сейчас у вас нет активной подписки__\n\nИспользуйте /subscribe для оформления подписки"
+
         end_date = datetime.fromisoformat(subscription["end_date"])
         days_left = (end_date - datetime.now()).days
-        plan_name = self.SUBSCRIPTION_PLANS.get(subscription["plan_type"], {}).get("name", subscription["plan_type"])
-        
-        # Склонение слова "день"
-        if days_left % 10 == 1 and days_left % 100 != 11:
+
+        # Склонение для "дней"
+        n = abs(days_left)
+        n10, n100 = n % 10, n % 100
+        if n10 == 1 and n100 != 11:
             days_word = "день"
-        elif 2 <= days_left % 10 <= 4 and (days_left % 100 < 10 or days_left % 100 >= 20):
+        elif 2 <= n10 <= 4 and not (12 <= n100 <= 14):
             days_word = "дня"
         else:
             days_word = "дней"
-        
-        return (
-            f"✅ _У вас есть активная подписка_\n\n"
-            f"До конца подписки осталось *_{days_left} {days_word}_*"
-        )
+
+        # Первая строка подчёркнута, число+слово — жирно+курсив
+        return f"✅ __У вас есть активная подписка__\n\nДо конца подписки осталось ***{days_left} {days_word}***"
+
 
 
 

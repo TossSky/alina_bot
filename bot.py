@@ -117,7 +117,7 @@ class AlinaBot:
             f"📸 Доступно: {self.config.free_images_limit} изображений"
         )
         logger.info(f"Admin {user_id} reset their limits")
-        
+
     async def handle_close_subscribe(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         await query.answer()
@@ -127,58 +127,62 @@ class AlinaBot:
             pass
 
     async def subscribe(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        try:
-            await update.message.delete()
-        except Exception as e:
-            logger.warning(f"Не удалось удалить команду /subscribe: {e}")
-
         """Handle /subscribe command"""
         user_id = update.effective_user.id
         context.bot_data['subscription_manager'] = self.subscription_manager
-        
-        if self.subscription_manager.has_active_subscription(user_id):
-            info = self.subscription_manager.format_subscription_info(user_id)
-            text = f"✅ {info}\n\nХотите продлить подписку заранее?"
-        else:
-            text = "🌟 *Оформление подписки на бота Алину*"
-        
+
+        # Готовим статус с корректной разметкой (MarkdownV2) и склонением дней
+        info = self.subscription_manager.format_subscription_info(user_id)
+
+        # Клавиатура выбора способа оплаты + кнопка закрытия
         keyboard = self.subscription_manager.get_payment_method_keyboard()
         keyboard.inline_keyboard.append([InlineKeyboardButton("❌ Закрыть", callback_data="close_subscribe")])
 
-        await update.message.reply_text(
-            text + "\n\nВыберите способ оплаты:",
-            parse_mode="Markdown",
-            reply_markup=keyboard
-        )
+        chat_id = update.effective_chat.id
 
-    
-    async def subscription_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        # 1) Сначала отправляем сообщение бота (НЕ reply_text), чтобы оно появилось до удаления команды
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=info + "\n\nВыберите способ оплаты:",
+                parse_mode=ParseMode.MARKDOWN_V2,
+                reply_markup=keyboard
+            )
+        except Exception as e:
+            # Если внезапно упадёт парсинг MarkdownV2, шлём безопасный фолбек без форматирования
+            logger.exception(f"Ошибка при отправке /subscribe: {e}")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(info + "\n\nВыберите способ оплаты:").replace("_", " ").replace("*", " "),
+                reply_markup=keyboard
+            )
+
+        # 2) Затем удаляем сообщение пользователя с командой /subscribe
         try:
             await update.message.delete()
         except Exception as e:
             logger.warning(f"Не удалось удалить команду /subscribe: {e}")
-
+    
+    async def subscription_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscription command - check subscription status"""
         user_id = update.effective_user.id
-        
-        if self.subscription_manager.has_active_subscription(user_id):
-            info = self.subscription_manager.format_subscription_info(user_id)
-            await update.message.reply_text(f"✅ {info}")
-        else:
-            usage = self.db.get_user_usage(user_id)
-            messages_left = max(0, self.config.free_messages_limit - usage["messages"])
-            tokens_left = max(0, self.config.free_tokens_limit - usage["tokens"])
-            images_left = max(0, self.config.free_images_limit - usage["images"])
-            
-            await update.message.reply_text(
-                "❌ *У вас нет активной подписки*\n\n"
-                f"📦 *Бесплатные лимиты:*\n"
-                f"💬 Сообщения: {usage['messages']}/{self.config.free_messages_limit} (осталось {messages_left})\n"
-                f"🎯 Токены: {usage['tokens']}/{self.config.free_tokens_limit} (осталось {tokens_left})\n"
-                f"📸 Изображения: {usage['images']}/{self.config.free_images_limit} (осталось {images_left})\n\n"
-                "Используйте /subscribe для оформления подписки.",
-                parse_mode=ParseMode.MARKDOWN
-            )
+
+        # Готовый текст (с уже корректной разметкой MarkdownV2) берём из payments.format_subscription_info
+        info = self.subscription_manager.format_subscription_info(user_id)
+
+        # 1) Сначала отправляем новое сообщение БОТА (не reply_text!)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=info,
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+
+        # 2) Потом удаляем команду пользователя
+        try:
+            await update.message.delete()
+        except Exception as e:
+            logger.warning(f"Не удалось удалить команду /subscription: {e}")
+
     
     async def clean(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /clean command - remove reply keyboard"""
