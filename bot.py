@@ -155,7 +155,7 @@ class AlinaBot:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=text + "\n\nВыберите способ оплаты:",
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup
         )
 
