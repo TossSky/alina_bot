@@ -254,20 +254,25 @@ class SubscriptionManager:
         subscription = self.get_active_subscription(user_id)
         
         if not subscription:
-            return "У вас нет активной подписки."
+            return "✖️ _Сейчас у вас нет активной подписки_\n\nИспользуйте /subscribe для оформления подписки"
         
         end_date = datetime.fromisoformat(subscription["end_date"])
         days_left = (end_date - datetime.now()).days
         plan_name = self.SUBSCRIPTION_PLANS.get(subscription["plan_type"], {}).get("name", subscription["plan_type"])
-        payment_method = subscription.get("payment_method", "rub")
-        currency = "⭐" if payment_method == "stars" else "₽"
         
-        if days_left == 0:
-            return f"Ваша подписка ({plan_name}) истекает сегодня!"
-        elif days_left == 1:
-            return f"Ваша подписка ({plan_name}) активна ещё 1 день"
+        # Склонение слова "день"
+        if days_left % 10 == 1 and days_left % 100 != 11:
+            days_word = "день"
+        elif 2 <= days_left % 10 <= 4 and (days_left % 100 < 10 or days_left % 100 >= 20):
+            days_word = "дня"
         else:
-            return f"Ваша подписка ({plan_name}) активна ещё {days_left} дней"
+            days_word = "дней"
+        
+        return (
+            f"✅ _У вас есть активная подписка_\n\n"
+            f"До конца подписки осталось *_{days_left} {days_word}_*"
+        )
+
 
 
 # ================ STARS PAYMENT HANDLERS ================

@@ -117,8 +117,21 @@ class AlinaBot:
             f"📸 Доступно: {self.config.free_images_limit} изображений"
         )
         logger.info(f"Admin {user_id} reset their limits")
-    
+        
+    async def handle_close_subscribe(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        await query.answer()
+        try:
+            await query.message.delete()
+        except:
+            pass
+
     async def subscribe(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        try:
+            await update.message.delete()
+        except Exception as e:
+            logger.warning(f"Не удалось удалить команду /subscribe: {e}")
+
         """Handle /subscribe command"""
         user_id = update.effective_user.id
         context.bot_data['subscription_manager'] = self.subscription_manager
@@ -129,13 +142,22 @@ class AlinaBot:
         else:
             text = "🌟 *Оформление подписки на бота Алину*"
         
+        keyboard = self.subscription_manager.get_payment_method_keyboard()
+        keyboard.inline_keyboard.append([InlineKeyboardButton("❌ Закрыть", callback_data="close_subscribe")])
+
         await update.message.reply_text(
             text + "\n\nВыберите способ оплаты:",
             parse_mode="Markdown",
-            reply_markup=self.subscription_manager.get_payment_method_keyboard()
+            reply_markup=keyboard
         )
+
     
     async def subscription_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        try:
+            await update.message.delete()
+        except Exception as e:
+            logger.warning(f"Не удалось удалить команду /subscribe: {e}")
+
         """Handle /subscription command - check subscription status"""
         user_id = update.effective_user.id
         
@@ -507,6 +529,7 @@ class AlinaBot:
             CommandHandler("faq", self.faq),
             CallbackQueryHandler(self.handle_faq_callback, pattern="^faq_"),
             CallbackQueryHandler(handle_subscribe_callback, pattern="^(subscribe_|payment_method_|back_to_payment_methods|stars_direct_)"),
+            CallbackQueryHandler(self.handle_close_subscribe, pattern="^close_subscribe$"),
             PreCheckoutQueryHandler(handle_stars_pre_checkout),
             MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_stars_successful_payment),
             MessageHandler(filters.PHOTO, self.handle_photo),
