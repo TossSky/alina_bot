@@ -21,7 +21,8 @@ from config import Config
 from database import DialogueDB
 from google_docs_service import get_docs_service
 from llm import AlinaLLM, create_image_message, get_image_hash
-from payments import SubscriptionManager, create_yookassa_payment, handle_subscribe_callback, handle_check_payment_callback
+from payments import SubscriptionManager, handle_subscribe_callback, handle_start_payment
+from payment_checker import PaymentStatusChecker
 from yookassa_integration import YooKassaClient
 from personality import ALINA_PERSONALITY, enrich_prompt
 
@@ -53,14 +54,25 @@ class AlinaBot:
             secret_key=self.config.yookassa_secret_key
         )
         self.subscription_manager = SubscriptionManager(self.db, self.yookassa_client)
+        self.payment_checker = PaymentStatusChecker(self.config.db_path, self.yookassa_client)
         self.docs_service = get_docs_service()
         self.system_prompt = enrich_prompt(ALINA_PERSONALITY, {})
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /start command"""
+        """Handle /start command with deep link support"""
         user = update.effective_user
-        self.db.get_or_create_user(user_id=user.id)
+        user_id = user.id
+        self.db.get_or_create_user(user_id=user_id)
         
+        # Check for deep link payment
+        if context.args:
+            arg = context.args[0]
+            if arg.startswith('pay_'):
+                plan_type = arg.replace('pay_', '')
+                await handle_start_payment(update, context, plan_type)
+                return
+        
+        # Regular start message
         text = "Меня зовут Алина) рада буду пообщаться с тобой!\n\n📸 Теперь ты можешь отправлять мне картинки, и я их пойму!"
         await update.message.reply_text(text)
         logger.info(f"New user started: {user.id}")
@@ -430,12 +442,28 @@ class AlinaBot:
         """Called after the bot starts - initialize background tasks"""
         logger.info("Initializing background tasks...")
         self.docs_service.start_periodic_updates()
+        
+        # Start payment status checker
+        context = application.bot_data
+        context['subscription_manager'] = self.subscription_manager
+        context['yookassa_client'] = self.yookassa_client
+        
+        # Create a simple context-like object for the checker
+        class SimpleContext:
+            def __init__(self, bot, bot_data):
+                self.bot = bot
+                self.bot_data = bot_data
+        
+        checker_context = SimpleContext(application.bot, context)
+        self.payment_checker.start(checker_context)
+        
         logger.info("Background tasks started")
     
     async def post_shutdown(self, application: Application) -> None:
         """Called before bot shutdown - cleanup background tasks"""
         logger.info("Stopping background tasks...")
         self.docs_service.stop_periodic_updates()
+        self.payment_checker.stop()
         logger.info("Background tasks stopped")
     
     def run(self) -> None:
@@ -466,7 +494,6 @@ class AlinaBot:
             CommandHandler("faq", self.faq),
             CallbackQueryHandler(self.handle_faq_callback, pattern="^faq_"),
             CallbackQueryHandler(handle_subscribe_callback, pattern="^subscribe_"),
-            CallbackQueryHandler(handle_check_payment_callback, pattern="^check_payment_"),
             MessageHandler(filters.PHOTO, self.handle_photo),
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message),
         ])

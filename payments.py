@@ -200,7 +200,7 @@ class SubscriptionManager:
             conn.commit()
     
     def get_subscription_keyboard(self) -> InlineKeyboardMarkup:
-        """Generate subscription options keyboard"""
+        """Generate subscription options keyboard with callback data"""
         keyboard = []
         for plan_id, plan in self.SUBSCRIPTION_PLANS.items():
             price_rub = plan["price"]
@@ -230,55 +230,55 @@ class SubscriptionManager:
             return f"Ваша подписка ({plan_name}) активна ещё {days_left} дней"
 
 
-async def create_yookassa_payment(
+async def handle_start_payment(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-    plan_type: str,
-    yookassa_client: YooKassaClient
+    plan_type: str
 ) -> None:
-    """Create YooKassa payment and send payment link"""
+    """Handle /start pay_<plan> command - create and send payment link"""
     manager = context.bot_data.get('subscription_manager')
-    if not manager:
-        await update.callback_query.answer("Ошибка: система подписок не инициализирована")
+    yookassa = context.bot_data.get('yookassa_client')
+    
+    if not manager or not yookassa:
+        await update.message.reply_text("Ошибка: система оплаты не инициализирована")
         return
     
     if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
-        await update.callback_query.answer("Неверный тип подписки")
+        await update.message.reply_text("Неверный тип подписки")
         return
     
     plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
     user_id = update.effective_user.id
     
     # Create payment in YooKassa
-    payment = yookassa_client.create_payment(
+    payment = yookassa.create_payment(
         amount=plan["price"],
         description=f"Подписка на бота Алину - {plan['name']}",
         metadata={
             "user_id": user_id,
-            "plan_type": plan_type
+            "plan_type": plan_type,
+            "telegram_username": update.effective_user.username or ""
         }
     )
     
     if not payment:
-        await update.callback_query.answer("Ошибка создания платежа. Попробуйте позже.")
+        await update.message.reply_text("Ошибка создания платежа. Попробуйте позже.")
         return
     
     # Save pending payment
     manager.save_pending_payment(user_id, payment["id"], plan_type, plan["price"])
     
-    # Send payment link
+    # Send payment link with inline button
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💳 Оплатить", url=payment["confirmation_url"])],
-        [InlineKeyboardButton("🔄 Проверить оплату", callback_data=f"check_payment_{payment['id']}")]
+        [InlineKeyboardButton("💳 Оплатить", url=payment["confirmation_url"])]
     ])
     
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=f"💰 *Оплата подписки*\n\n"
-             f"План: {plan['name']}\n"
-             f"Стоимость: {plan['price']:.0f} ₽\n\n"
-             f"Нажмите кнопку ниже для оплаты.\n"
-             f"После оплаты нажмите \"Проверить оплату\".",
+    await update.message.reply_text(
+        f"💰 *Оплата подписки*\n\n"
+        f"План: {plan['name']}\n"
+        f"Стоимость: {plan['price']:.0f} ₽\n\n"
+        f"Нажмите кнопку для оплаты.\n"
+        f"После оплаты вернитесь в бот — подписка активируется автоматически!",
         parse_mode="Markdown",
         reply_markup=keyboard
     )
@@ -287,70 +287,125 @@ async def create_yookassa_payment(
 
 
 async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle subscription button press"""
+    """Handle subscription button press - create payment immediately"""
     query = update.callback_query
     await query.answer()
     
     plan_type = query.data.replace("subscribe_", "")
-    yookassa = context.bot_data.get('yookassa_client')
-    
-    if not yookassa:
-        await query.message.reply_text("Ошибка: платежная система не инициализирована")
-        return
-    
-    await create_yookassa_payment(update, context, plan_type, yookassa)
-
-
-async def handle_check_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle payment check button press"""
-    query = update.callback_query
-    
-    payment_id = query.data.replace("check_payment_", "")
     
     manager = context.bot_data.get('subscription_manager')
     yookassa = context.bot_data.get('yookassa_client')
     
     if not manager or not yookassa:
-        await query.answer("Ошибка системы", show_alert=True)
+        await query.message.reply_text("Ошибка: система оплаты не инициализирована")
         return
     
-    # Get payment info
+    if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
+        await query.message.reply_text("Неверный тип подписки")
+        return
+    
+    plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
+    user_id = update.effective_user.id
+    
+    # Create payment in YooKassa
+    payment = yookassa.create_payment(
+        amount=plan["price"],
+        description=f"Подписка на бота Алину - {plan['name']}",
+        metadata={
+            "user_id": user_id,
+            "plan_type": plan_type,
+            "telegram_username": update.effective_user.username or ""
+        }
+    )
+    
+    if not payment:
+        await query.message.reply_text("Ошибка создания платежа. Попробуйте позже.")
+        return
+    
+    # Save pending payment
+    manager.save_pending_payment(user_id, payment["id"], plan_type, plan["price"])
+    
+    # Send payment link - just a button, no extra text
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 Оплатить", url=payment["confirmation_url"])]
+    ])
+    
+    await query.message.reply_text(
+        f"💳 *{plan['name']} - {plan['price']:.0f} ₽*\n\n"
+        f"Нажмите кнопку для перехода к оплате.\n"
+        f"После оплаты подписка активируется автоматически!",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+    
+    logger.info(f"Created payment {payment['id']} for user {user_id}, plan {plan_type}")
+
+
+async def process_payment_notification(payment_data: dict, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Process payment notification from YooKassa webhook
+    
+    Args:
+        payment_data: Payment data from YooKassa
+        context: Bot context
+        
+    Returns:
+        True if processed successfully
+    """
+    manager = context.bot_data.get('subscription_manager')
+    
+    if not manager:
+        logger.error("Subscription manager not initialized")
+        return False
+    
+    payment_id = payment_data.get("id")
+    status = payment_data.get("status")
+    metadata = payment_data.get("metadata", {})
+    
+    if not payment_id:
+        logger.error("No payment_id in notification")
+        return False
+    
+    # Get pending payment info
     pending = manager.get_pending_payment(payment_id)
     
     if not pending:
-        await query.answer("Платеж не найден", show_alert=True)
-        return
+        logger.warning(f"Pending payment not found: {payment_id}")
+        return False
     
-    # Check payment status in YooKassa
-    status = yookassa.get_payment_status(payment_id)
+    user_id = pending["user_id"]
+    plan_type = pending["plan_type"]
     
+    # Handle payment success
     if status == "succeeded":
         # Activate subscription
-        if manager.add_subscription(pending["user_id"], pending["plan_type"], payment_id):
+        if manager.add_subscription(user_id, plan_type, payment_id):
             manager.update_payment_status(payment_id, "succeeded")
             
-            plan = SubscriptionManager.SUBSCRIPTION_PLANS.get(pending["plan_type"], {})
+            plan = SubscriptionManager.SUBSCRIPTION_PLANS.get(plan_type, {})
             
-            await query.message.reply_text(
-                f"✅ Спасибо за оплату!\n\n"
-                f"Ваша подписка '{plan.get('name', pending['plan_type'])}' активирована.\n"
-                f"Срок действия: {plan.get('days', 0)} дней\n\n"
-                f"Теперь вы можете пользоваться ботом без ограничений! 💜"
-            )
-            
-            # Remove payment buttons
-            await query.message.edit_reply_markup(reply_markup=None)
-            
-            logger.info(f"Payment {payment_id} succeeded for user {pending['user_id']}")
+            # Send success message to user
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"✅ *Оплата успешна!*\n\n"
+                         f"Ваша подписка '{plan.get('name', plan_type)}' активирована.\n"
+                         f"Срок действия: {plan.get('days', 0)} дней\n\n"
+                         f"Теперь вы можете пользоваться ботом без ограничений! 💜",
+                    parse_mode="Markdown"
+                )
+                logger.info(f"Payment {payment_id} succeeded for user {user_id}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to send success message to user {user_id}: {e}")
+                return False
         else:
-            await query.answer("Ошибка активации подписки", show_alert=True)
+            logger.error(f"Failed to activate subscription for payment {payment_id}")
+            return False
     
+    # Handle payment cancellation
     elif status == "canceled":
         manager.update_payment_status(payment_id, "canceled")
-        await query.answer("Платеж отменен", show_alert=True)
+        logger.info(f"Payment {payment_id} canceled")
+        return True
     
-    elif status == "pending":
-        await query.answer("Платеж еще не завершен. Подождите немного.", show_alert=True)
-    
-    else:
-        await query.answer(f"Статус платежа: {status}", show_alert=True)
+    return False

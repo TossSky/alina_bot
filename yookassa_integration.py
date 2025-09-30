@@ -52,7 +52,7 @@ class YooKassaClient:
                 },
                 "confirmation": {
                     "type": "redirect",
-                    "return_url": return_url or "https://t.me/AlinaGPTsupp_bot"
+                    "return_url": return_url or "https://t.me/Alina_buterbot"
                 },
                 "capture": True,
                 "description": description
