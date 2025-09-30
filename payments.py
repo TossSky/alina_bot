@@ -431,18 +431,15 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
     # Обработка выбора способа оплаты
     if data == "payment_method_stars":
         manager = context.bot_data.get('subscription_manager')
-        # Создаем специальную клавиатуру для звездочек, которая сразу создаст инвойс
+        # Клавиатура: варианты планов + Назад + ❌
         keyboard = []
         for plan_id, plan in SubscriptionManager.SUBSCRIPTION_PLANS.items():
             price = plan["price_stars"]
-            button = InlineKeyboardButton(
-                f"{plan['name']} - {price} ⭐",
-                callback_data=f"stars_direct_{plan_id}"
-            )
-            keyboard.append([button])
-        
+            keyboard.append([InlineKeyboardButton(f"{plan['name']} - {price} ⭐", callback_data=f"stars_direct_{plan_id}")])
+
         keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_payment_methods")])
-        
+        keyboard.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])  # добавили крестик
+
         await query.message.edit_text(
             "⭐ *Оплата звёздочками Telegram*\n\n"
             "Выберите период подписки:",
@@ -450,26 +447,40 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
+
     
     elif data == "payment_method_rub":
         manager = context.bot_data.get('subscription_manager')
+        # Базовый markup -> добавляем ❌
+        base = manager.get_subscription_keyboard("rub")
+        rows = [list(row) for row in base.inline_keyboard]
+        rows.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])  # добавили крестик
+        reply_markup = InlineKeyboardMarkup(rows)
+
         await query.message.edit_text(
             "💳 *Оплата рублями через ЮКассу*\n\n"
             "Выберите период подписки:",
             parse_mode="Markdown",
-            reply_markup=manager.get_subscription_keyboard("rub")
+            reply_markup=reply_markup
         )
         return
+
     
     elif data == "back_to_payment_methods":
         manager = context.bot_data.get('subscription_manager')
+        base = manager.get_payment_method_keyboard()
+        rows = [list(row) for row in base.inline_keyboard]
+        rows.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])  # добавили крестик
+        reply_markup = InlineKeyboardMarkup(rows)
+
         await query.message.edit_text(
             "🌟 *Оформление подписки*\n\n"
             "Выберите способ оплаты:",
             parse_mode="Markdown",
-            reply_markup=manager.get_payment_method_keyboard()
+            reply_markup=reply_markup
         )
         return
+
     
     # Обработка прямого выбора плана для звездочек (новый обработчик)
     if data.startswith("stars_direct_"):
