@@ -300,9 +300,6 @@ async def create_stars_invoice(
         provider_token="",  # Empty for Stars
         currency="XTR",  # Telegram Stars currency
         prices=[LabeledPrice(label=plan["description"], amount=plan["price_stars"])],
-        photo_url="https://www.google.com/url?sa=i&url=https%3A%2F%2Fpromokodoff.ru%2Fpromokody-telegram-stars%2F&psig=AOvVaw1TcMs8BlTznDIL3PrYLGZQ&ust=1759350761741000&source=images&cd=vfe&opi=89978449&ved=0CBUQjRxqFwoTCKCrkbqqgZADFQAAAAAdAAAAABAE",
-        photo_width=400,
-        photo_height=250,
         is_flexible=False,
         start_parameter=f"subscription-{plan_type}",
     )
@@ -498,9 +495,6 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             provider_token="",  # Пустой для Stars
             currency="XTR",  # Telegram Stars
             prices=[LabeledPrice(label=plan["description"], amount=plan["price_stars"])],
-            photo_url="https://images.unsplash.com/photo-1573164713714-d95e436ab8d6?w=400",
-            photo_width=400,
-            photo_height=250,
             is_flexible=False,
             start_parameter=f"subscription-{plan_type}",
         )
@@ -535,9 +529,6 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             provider_token="",  # Пустой для Stars
             currency="XTR",  # Telegram Stars
             prices=[LabeledPrice(label=plan["description"], amount=plan["price_stars"])],
-            photo_url="https://images.unsplash.com/photo-1573164713714-d95e436ab8d6?w=400",
-            photo_width=400,
-            photo_height=250,
             is_flexible=False,
             start_parameter=f"subscription-{plan_type}",
         )
