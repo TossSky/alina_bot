@@ -66,6 +66,7 @@ class DialogueDB:
                     content TEXT,
                     has_image BOOLEAN DEFAULT 0,
                     image_count INTEGER DEFAULT 0,
+                    image_hash TEXT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
@@ -90,6 +91,11 @@ class DialogueDB:
             
             try:
                 cursor.execute("ALTER TABLE messages ADD COLUMN image_count INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                cursor.execute("ALTER TABLE messages ADD COLUMN image_hash TEXT")
             except sqlite3.OperationalError:
                 pass
     
@@ -132,15 +138,15 @@ class DialogueDB:
             return user_dict
     
     def add_message(self, user_id: int, role: str, content: str, tokens_used: int = 0, 
-                    has_image: bool = False, image_count: int = 0):
+                    has_image: bool = False, image_count: int = 0, image_hash: str = None):
         """Add message to conversation history"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
             # Insert message
             cursor.execute(
-                "INSERT INTO messages (user_id, role, content, has_image, image_count) VALUES (?, ?, ?, ?, ?)",
-                (user_id, role, content, has_image, image_count)
+                "INSERT INTO messages (user_id, role, content, has_image, image_count, image_hash) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, role, content, has_image, image_count, image_hash)
             )
             
             # Update counters
@@ -263,3 +269,19 @@ class DialogueDB:
                     )
                 """, (user_id, to_delete))
                 logger.info(f"Cleaned {to_delete} old messages for user {user_id}")
+    
+    def is_duplicate_image(self, user_id: int, image_hash: str, minutes: int = 30) -> bool:
+        """Check if user sent this image recently (within X minutes)"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT COUNT(*) FROM messages 
+                WHERE user_id = ? 
+                AND image_hash = ? 
+                AND has_image = 1
+                AND timestamp > datetime('now', '-' || ? || ' minutes')
+            """, (user_id, image_hash, minutes))
+            
+            count = cursor.fetchone()[0]
+            return count > 0

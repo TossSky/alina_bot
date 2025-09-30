@@ -20,7 +20,7 @@ from telegram.ext import (
 from config import Config
 from database import DialogueDB
 from google_docs_service import get_docs_service
-from llm import AlinaLLM, create_image_message
+from llm import AlinaLLM, create_image_message, get_image_hash
 from payments import SubscriptionManager, create_invoice, handle_subscribe_callback
 from personality import ALINA_PERSONALITY, enrich_prompt
 
@@ -303,10 +303,14 @@ class AlinaBot:
         file = await context.bot.get_file(photo.file_id)
         image_bytes = await file.download_as_bytearray()
         
-        # Получаем caption или используем дефолтный текст
-        user_text = (update.message.caption or "").strip() or "отреагируй живо и естественно, 2-3 предложениями. можешь высказать мнение, поделиться мыслями или спросить что-то. просто будь собой"
+        # Получаем хеш изображения для проверки дубликатов
+        image_hash = get_image_hash(bytes(image_bytes))
+        is_duplicate = self.db.is_duplicate_image(user_id, image_hash, minutes=30)
         
-        logger.info(f"User {user_id} sent photo with caption: {user_text[:50]}...")
+        # Получаем caption или используем дефолтный текст
+        user_text = (update.message.caption or "").strip()
+        
+        logger.info(f"User {user_id} sent photo with caption: {user_text[:50]}...{' (DUPLICATE)' if is_duplicate else ''}")
         
         # Получаем актуальный промпт
         current_personality = self.docs_service.get_personality()
@@ -316,6 +320,7 @@ class AlinaBot:
         image_message = create_image_message(
             image_bytes=bytes(image_bytes),
             text=user_text,
+            is_duplicate=is_duplicate,
             mime_type="image/jpeg",
             detail=self.config.image_detail_level
         )
@@ -339,8 +344,9 @@ class AlinaBot:
         await update.message.reply_text(response_text)
         
         # Сохраняем в БД (текст + пометка об изображении)
-        self.db.add_message(user_id, "user", f"[📸 Изображение] {user_text}", 
-                           has_image=True, image_count=1)
+        display_text = user_text if user_text else "[📸]"  # Если нет текста, просто иконка
+        self.db.add_message(user_id, "user", display_text, 
+                           has_image=True, image_count=1, image_hash=image_hash)
         self.db.add_message(user_id, "assistant", response_text, tokens_net)
         
         # Проверяем лимиты после

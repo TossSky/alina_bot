@@ -1,6 +1,7 @@
 """LLM Client Module - OpenAI API Integration"""
 
 import base64
+import hashlib
 import io
 import logging
 import os
@@ -199,14 +200,20 @@ def encode_image_to_base64(image_bytes: bytes) -> str:
     return base64.b64encode(image_bytes).decode('utf-8')
 
 
-def create_image_message(image_bytes: bytes, text: str = "отреагируй живо и естественно, 2-3 предложениями. можешь высказать мнение, поделиться мыслями или спросить что-то. просто будь собой", 
+def get_image_hash(image_bytes: bytes) -> str:
+    """Get SHA256 hash of image for duplicate detection"""
+    return hashlib.sha256(image_bytes).hexdigest()
+
+
+def create_image_message(image_bytes: bytes, text: str = "", is_duplicate: bool = False,
                          mime_type: str = "image/jpeg", detail: str = "auto") -> Dict:
     """
     Create a message with image content in OpenAI Chat Completions format
     
     Args:
         image_bytes: Image data as bytes
-        text: Text prompt for the image
+        text: Text prompt/caption from user
+        is_duplicate: Whether this image was already sent before
         mime_type: MIME type of the image (e.g., "image/jpeg", "image/png")
         detail: Detail level ("low", "high", "auto")
     
@@ -214,6 +221,13 @@ def create_image_message(image_bytes: bytes, text: str = "отреагируй �
         Dict with message in OpenAI format
     """
     base64_image = encode_image_to_base64(image_bytes)
+    
+    # Если текста нет и это не повтор - пустой текст (система сама сгенерирует реакцию)
+    # Если повтор - добавляем контекст
+    if not text and is_duplicate:
+        text = "[пользователь отправил эту же картинку снова]"
+    elif not text:
+        text = ""
     
     return {
         "role": "user",
