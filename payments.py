@@ -20,7 +20,7 @@ class SubscriptionManager:
     SUBSCRIPTION_PLANS = {
         "day": {
             "name": "День",
-            "price_rub": 99.00,
+            "price_rub": 10,
             "price_stars": 60,
             "days": 1,
             "description": "Подписка на 1 день"
