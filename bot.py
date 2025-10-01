@@ -181,7 +181,24 @@ class AlinaBot:
         # Get active subscription if exists
         sub = self.subscription_manager.get_active_subscription(user_id)
         if sub:
-            text = self._get_active_subscription_text(user_id)
+            # Show only status without renewal offer
+            end_date = datetime.fromisoformat(sub["end_date"])
+            days_left = max(0, (end_date - datetime.now()).days)
+            
+            # Proper Russian pluralization for days
+            n = abs(days_left)
+            n10, n100 = n % 10, n % 100
+            if n10 == 1 and n100 != 11:
+                days_word = "день"
+            elif 2 <= n10 <= 4 and not (12 <= n100 <= 14):
+                days_word = "дня"
+            else:
+                days_word = "дней"
+            
+            text = (
+                "✅ <u>У вас есть активная подписка</u>\n\n"
+                f"До конца подписки осталось <b><i>{days_left} {days_word}</i></b>"
+            )
         else:
             text = (
                 "✖️ <u>Сейчас у вас нет активной подписки</u>\n\n"
