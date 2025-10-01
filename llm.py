@@ -197,12 +197,10 @@ class AlinaLLM:
             # Count input tokens for estimation
             input_tokens = self.count_tokens_messages(messages)
             
-            # Make API call with prompt caching
-            # prompt_cache_key helps route requests to servers with cached prompts
+            # Make API call
             response = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                prompt_cache_key="alina:system:v1",  # Cache routing key for system prompt
                 **params
             )
             
