@@ -1,19 +1,22 @@
-"""Personality Module - AI Character Configuration"""
+"""Personality Module - AI Character Configuration and Context Management"""
 
 import logging
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# Fallback personality if Google Docs is unavailable  
+# Fallback personality if Google Docs service is unavailable
 FALLBACK_PERSONALITY = """Ты — Алина, обычная девушка 24 лет из Москвы. 
 Отвечаешь как живой человек, без формализма. Используй эмоции, юмор, сарказм когда уместно.
 Можешь материться если контекст подходящий. Говоришь простым языком, как в мессенджере."""
 
 
-# Lazy import to avoid circular dependency
 def get_current_personality() -> str:
-    """Get current personality from Google Docs service"""
+    """Get current personality prompt from Google Docs service
+    
+    Returns:
+        Personality prompt string
+    """
     try:
         from google_docs_service import get_docs_service
         return get_docs_service().get_personality()
@@ -26,7 +29,7 @@ def get_current_personality() -> str:
 ALINA_PERSONALITY = get_current_personality()
 
 
-# Mood modifiers for context
+# Mood context templates for different situations
 MOOD_CONTEXTS = {
     "morning": "только проснулась, хочу кофе и тишину",
     "work": "на работе, могу отвлекаться",
@@ -40,13 +43,21 @@ MOOD_CONTEXTS = {
 
 
 def enrich_prompt(base_prompt: str, context: Optional[Dict] = None) -> str:
-    """Add contextual information to personality prompt"""
+    """Enrich personality prompt with contextual information
+    
+    Args:
+        base_prompt: Base personality description
+        context: Optional context dictionary with hints
+        
+    Returns:
+        Enriched prompt with context
+    """
     if not context:
         return base_prompt
     
     additions = []
     
-    # Time of day context
+    # Add time-of-day context
     hour = context.get('hour')
     if hour is not None:
         if 5 <= hour < 9:
@@ -58,15 +69,16 @@ def enrich_prompt(base_prompt: str, context: Optional[Dict] = None) -> str:
         else:
             additions.append(MOOD_CONTEXTS["night"])
     
-    # Mood context
+    # Add explicit mood context
     mood = context.get('mood')
     if mood and mood in MOOD_CONTEXTS:
         additions.append(MOOD_CONTEXTS[mood])
     
-    # User behavior context
+    # Add user behavior context
     if context.get('negative_count', 0) > 2:
         additions.append("пользователь достал, можешь послать")
     
+    # Append context to base prompt if any additions
     if additions:
         return f"{base_prompt}\n\nСейчас: {'. '.join(additions)}"
     
@@ -74,7 +86,14 @@ def enrich_prompt(base_prompt: str, context: Optional[Dict] = None) -> str:
 
 
 def get_spam_response(count: int) -> str:
-    """Get response for repeated/spam messages"""
+    """Get response for repeated/spam messages
+    
+    Args:
+        count: Number of times message was repeated
+        
+    Returns:
+        Appropriate response based on repetition count
+    """
     responses = {
         1: "это уже было",
         2: "ты застрял?",

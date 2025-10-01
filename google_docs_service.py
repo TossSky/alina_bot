@@ -1,9 +1,9 @@
-"""Google Docs Service - Fetch and cache content from Google Docs"""
+"""Google Docs Service - Dynamic Content Loading from Google Documents"""
 
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
 import httpx
 
@@ -13,11 +13,11 @@ logger = logging.getLogger(__name__)
 class GoogleDocsService:
     """Service for fetching and caching content from Google Docs"""
     
-    # Google Docs URLs
+    # Google Docs URLs for FAQ and personality configuration
     FAQ_DOC_URL = "https://docs.google.com/document/d/1hhd4wKzL21MUyYqm7TwfEVKDqr9guWowcMDFkytEtkE/edit?usp=sharing"
     PERSONALITY_DOC_URL = "https://docs.google.com/document/d/1oLwiaPGMkb-VqMQCJmDwOWBPJOYfm99gk4oqhNPUPEo/edit"
     
-    # Fallback content
+    # Fallback content used when Google Docs is unavailable
     FALLBACK_FAQ = """**FAQ**
 
 🕵️‍♀️ Куда сливаются данные о моей переписке?
@@ -30,6 +30,7 @@ class GoogleDocsService:
 Отвечаешь как живой человек, без формализма."""
     
     def __init__(self):
+        """Initialize service with empty cache"""
         self._faq_cache: Optional[str] = None
         self._faq_updated: Optional[datetime] = None
         
@@ -41,12 +42,27 @@ class GoogleDocsService:
     
     @staticmethod
     def _extract_doc_id(url: str) -> str:
-        """Extract document ID from Google Docs URL"""
+        """Extract document ID from Google Docs URL
+        
+        Args:
+            url: Full Google Docs URL
+            
+        Returns:
+            Document ID string
+        """
         return url.split("/d/")[1].split("/")[0].strip()
     
     @staticmethod
     async def _fetch_doc_content(url: str, timeout: float = 10.0) -> Optional[str]:
-        """Fetch content from Google Docs"""
+        """Fetch plain text content from Google Docs
+        
+        Args:
+            url: Google Docs document URL
+            timeout: Request timeout in seconds
+            
+        Returns:
+            Document text content, or None on error
+        """
         try:
             doc_id = GoogleDocsService._extract_doc_id(url)
             export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
@@ -55,7 +71,9 @@ class GoogleDocsService:
                 response = await client.get(export_url, headers={"Accept": "text/plain"})
                 response.raise_for_status()
                 
+                # Normalize text: remove Windows line endings and non-breaking spaces
                 text = response.text.replace("\r\n", "\n").replace("\xa0", " ").strip()
+                
                 if not text:
                     raise ValueError("Empty document")
                 
@@ -67,7 +85,14 @@ class GoogleDocsService:
             return None
     
     def parse_faq_items(self, raw_content: Optional[str] = None) -> List[Tuple[str, str]]:
-        """Parse FAQ into list of (question, answer) tuples"""
+        """Parse FAQ document into list of (question, answer) tuples
+        
+        Args:
+            raw_content: Raw FAQ text (uses cache if None)
+            
+        Returns:
+            List of (question, answer) tuples
+        """
         content = raw_content or self._faq_cache or self.FALLBACK_FAQ
         
         lines = content.split("\n")
@@ -80,32 +105,36 @@ class GoogleDocsService:
             if not line:
                 continue
             
-            # Пропускаем заголовок FAQ
+            # Skip FAQ header
             if line.startswith("**FAQ**") or line == "FAQ":
                 continue
             
-            # Вопрос: начинается с эмодзи (не буква, не цифра, не пробел)
+            # Question line: starts with emoji (not alphanumeric)
             if line and not line[0].isalnum() and not line[0].isspace():
-                # Сохраняем предыдущую пару вопрос-ответ
+                # Save previous Q&A pair
                 if current_question and current_answer:
                     faq_items.append((current_question, "\n".join(current_answer)))
                 
-                # Начинаем новый вопрос
+                # Start new question
                 current_question = line
                 current_answer = []
             else:
-                # Это часть ответа
+                # This is part of the answer
                 if current_question:
                     current_answer.append(line)
         
-        # Добавляем последнюю пару
+        # Add last Q&A pair
         if current_question and current_answer:
             faq_items.append((current_question, "\n".join(current_answer)))
         
         return faq_items
     
     async def update_faq(self) -> bool:
-        """Update FAQ cache from Google Docs"""
+        """Update FAQ cache from Google Docs
+        
+        Returns:
+            True if update succeeded, False otherwise
+        """
         try:
             content = await self._fetch_doc_content(self.FAQ_DOC_URL)
             if content:
@@ -121,7 +150,11 @@ class GoogleDocsService:
             return False
     
     async def update_personality(self) -> bool:
-        """Update personality cache from Google Docs"""
+        """Update personality cache from Google Docs
+        
+        Returns:
+            True if update succeeded, False otherwise
+        """
         try:
             content = await self._fetch_doc_content(self.PERSONALITY_DOC_URL)
             if content:
@@ -137,16 +170,17 @@ class GoogleDocsService:
             return False
     
     async def _periodic_update(self):
-        """Periodic update task that runs every minute"""
+        """Background task that periodically updates cached documents"""
         logger.info("Starting periodic Google Docs update task")
         
-        # Первоначальная загрузка
+        # Initial load
         await self.update_faq()
         await self.update_personality()
         
         while True:
             try:
-                await asyncio.sleep(10)  # Обновление каждую минуту
+                # Wait 1 minute between updates
+                await asyncio.sleep(60)
                 
                 logger.debug("Running periodic update...")
                 await self.update_faq()
@@ -171,7 +205,11 @@ class GoogleDocsService:
             logger.info("Periodic update task stopped")
     
     def get_faq_raw(self) -> str:
-        """Get raw FAQ content (from cache or fallback)"""
+        """Get raw FAQ content from cache or fallback
+        
+        Returns:
+            FAQ text content
+        """
         if self._faq_cache:
             return self._faq_cache
         
@@ -179,7 +217,11 @@ class GoogleDocsService:
         return self.FALLBACK_FAQ
     
     def get_personality(self) -> str:
-        """Get personality prompt (from cache or fallback)"""
+        """Get personality prompt from cache or fallback
+        
+        Returns:
+            Personality prompt text
+        """
         if self._personality_cache:
             return self._personality_cache
         
@@ -187,19 +229,23 @@ class GoogleDocsService:
         return self.FALLBACK_PERSONALITY
     
     def is_faq_stale(self) -> bool:
-        """Check if FAQ cache is stale"""
+        """Check if FAQ cache is stale (older than TTL)"""
         if self._faq_updated is None:
             return True
         return datetime.now() - self._faq_updated > self._cache_ttl
     
     def is_personality_stale(self) -> bool:
-        """Check if personality cache is stale"""
+        """Check if personality cache is stale (older than TTL)"""
         if self._personality_updated is None:
             return True
         return datetime.now() - self._personality_updated > self._cache_ttl
     
     def get_cache_status(self) -> dict:
-        """Get current cache status for debugging"""
+        """Get current cache status for debugging
+        
+        Returns:
+            Dictionary with cache status information
+        """
         return {
             "faq": {
                 "cached": self._faq_cache is not None,
@@ -214,12 +260,16 @@ class GoogleDocsService:
         }
 
 
-# Global instance
+# Global singleton instance
 _docs_service: Optional[GoogleDocsService] = None
 
 
 def get_docs_service() -> GoogleDocsService:
-    """Get or create the global GoogleDocsService instance"""
+    """Get or create the global GoogleDocsService instance
+    
+    Returns:
+        Global GoogleDocsService instance
+    """
     global _docs_service
     if _docs_service is None:
         _docs_service = GoogleDocsService()

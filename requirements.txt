@@ -1,17 +1,25 @@
-# Core dependencies
+# ==================== Core Bot Framework ====================
+# Telegram Bot API wrapper
 python-telegram-bot==21.4
+
+# ==================== AI/ML Dependencies ====================
+# OpenAI API for LLM integration
 openai>=1.68.0
+
+# Token counting for OpenAI models
 tiktoken>=0.5.0
 
-# Environment and HTTP
+# ==================== Environment & Configuration ====================
+# Load environment variables from .env file
 python-dotenv>=1.0.0
-httpx>=0.24.0
 
-# Data validation
+# Data validation and settings management
 pydantic>=2.0.0
 
-# Payments
-yookassa>=3.0.0
+# ==================== HTTP & Network ====================
+# Modern HTTP client with async support
+httpx>=0.24.0
 
-# Webhook server
-flask>=3.0.0
+# ==================== Payment Processing ====================
+# YooKassa payment gateway integration
+yookassa>=3.0.0
