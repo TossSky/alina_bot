@@ -42,7 +42,7 @@ class SubscriptionManager:
             "days": 1,
             "description": "Подписка на 1 день"
         },
-        "day": {
+        "days_3": {
             "name": "3 Дня",
             "price_rub": 145,
             "price_stars": 80,
