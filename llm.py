@@ -201,6 +201,7 @@ class AlinaLLM:
             response = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
+                prompt_cache_key="alina:system:v1",
                 **params
             )
             
@@ -233,7 +234,20 @@ class AlinaLLM:
             return response_text, total_tokens
             
         except Exception as e:
-            logger.error(f"LLM generation error: {e}")
+            # Log detailed error information
+            import traceback
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            logger.error(f"LLM generation error [{error_type}]: {error_msg}")
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
+            
+            # Log request details for debugging
+            logger.error(f"Model: {self.model}")
+            logger.error(f"Using proxy: {self.use_proxy}")
+            if self.base_url:
+                logger.error(f"Base URL: {self.base_url}")
+            
             return "ой, кажется, я зависла. повторишь ещё раз?", 0
         finally:
             if client:
