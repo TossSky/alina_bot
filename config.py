@@ -45,6 +45,14 @@ class Config:
         self.free_tokens_limit = int(os.getenv("FREE_TOKENS_LIMIT", "2000"))
         self.free_images_limit = int(os.getenv("FREE_IMAGES_LIMIT", "5"))
         
+        # Subscriber daily limits (anti-spam)
+        self.subscriber_daily_messages = int(os.getenv("SUBSCRIBER_DAILY_MESSAGES", "150"))
+        self.subscriber_daily_tokens = int(os.getenv("SUBSCRIBER_DAILY_TOKENS", "100000"))
+        self.subscriber_daily_images = int(os.getenv("SUBSCRIBER_DAILY_IMAGES", "30"))
+        
+        # Rate limiting
+        self.rate_limit_seconds = int(os.getenv("RATE_LIMIT_SECONDS", "2"))
+        
         # Image Processing Settings
         self.max_image_size_mb = int(os.getenv("MAX_IMAGE_SIZE_MB", "10"))
         self.image_detail_level = os.getenv("IMAGE_DETAIL_LEVEL", "auto")

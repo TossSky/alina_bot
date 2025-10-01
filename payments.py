@@ -37,22 +37,22 @@ class SubscriptionManager:
     SUBSCRIPTION_PLANS = {
         "day": {
             "name": "День",
-            "price_rub": 10,
-            "price_stars": 60,
+            "price_rub": 149,
+            "price_stars": 85,
             "days": 1,
             "description": "Подписка на 1 день"
         },
         "week": {
             "name": "Неделя",
-            "price_rub": 499.00,
-            "price_stars": 300,
+            "price_rub": 449,
+            "price_stars": 265,
             "days": 7,
             "description": "Подписка на 7 дней"
         },
         "month": {
             "name": "Месяц",
-            "price_rub": 1499.00,
-            "price_stars": 900,
+            "price_rub": 999,
+            "price_stars": 605,
             "days": 30,
             "description": "Подписка на 30 дней"
         }

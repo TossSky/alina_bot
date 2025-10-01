@@ -271,8 +271,19 @@ class AlinaBot:
         """
         user_id = update.effective_user.id
         
-        # Check subscription and limits for free users
-        if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
+        # Anti-spam protection (for all users)
+        if not await self._check_spam_protection(user_id, update):
+            return
+        
+        # Rate limiting (for all users)
+        if not await self._check_rate_limit(user_id, update):
+            return
+        
+        # Check subscription status
+        has_subscription = self.subscription_manager.has_active_subscription(user_id)
+        
+        # Check limits based on subscription status
+        if self.config.subscription_required and not has_subscription:
             usage = self.db.get_user_usage(user_id)
             
             # Check image limit
@@ -287,6 +298,10 @@ class AlinaBot:
             
             # Check other limits
             if not await self._check_limits(user_id, update):
+                return
+        else:
+            # Check daily limits for subscribers with "tiredness" system
+            if not await self._check_subscriber_limits(user_id, update, for_image=True):
                 return
         
         # Validate image size
@@ -343,19 +358,6 @@ class AlinaBot:
                            has_image=True, image_count=1, image_hash=image_hash)
         self.db.add_message(user_id, "assistant", response_text, tokens_net)
         
-        # Check limits after processing for free users
-        if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
-            usage = self.db.get_user_usage(user_id)
-            if (usage["messages"] >= self.config.free_messages_limit or 
-                usage["tokens"] >= self.config.free_tokens_limit or 
-                usage["images"] >= self.config.free_images_limit):
-                await update.message.reply_text(
-                    "⚠️ `Вы исчерпали бесплатный лимит`\n\n"
-                    "🌟 Для продолжения общения подключите /subscribe",
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=self.subscription_manager.get_payment_method_keyboard()
-                )
-        
         logger.info(f"Alina (vision): {response_text[:50]}... (tokens: {tokens_net}, images: 1)")
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -369,9 +371,24 @@ class AlinaBot:
         if not user_message:
             return
         
-        # Check subscription and limits for free users
-        if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
+        # Anti-spam protection (for all users)
+        if not await self._check_spam_protection(user_id, update):
+            return
+        
+        # Rate limiting (for all users)
+        if not await self._check_rate_limit(user_id, update):
+            return
+        
+        # Check subscription status
+        has_subscription = self.subscription_manager.has_active_subscription(user_id)
+        
+        # Check limits based on subscription status
+        if self.config.subscription_required and not has_subscription:
             if not await self._check_limits(user_id, update):
+                return
+        else:
+            # Check daily limits for subscribers with "tiredness" system
+            if not await self._check_subscriber_limits(user_id, update, for_image=False):
                 return
         
         logger.info(f"User {user_id}: {user_message[:50]}...")
@@ -405,18 +422,6 @@ class AlinaBot:
         
         # Save response to database
         self.db.add_message(user_id, "assistant", response_text, tokens_net)
-        
-        # Check limits after processing for free users
-        if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
-            usage = self.db.get_user_usage(user_id)
-            if (usage["messages"] >= self.config.free_messages_limit or 
-                usage["tokens"] >= self.config.free_tokens_limit):
-                await update.message.reply_text(
-                    "⚠️ `Вы исчерпали бесплатный лимит сообщений`\n\n"
-                    "🌟 Для продолжения общения подключите /subscribe",
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=self.subscription_manager.get_payment_method_keyboard()
-                )
         
         logger.info(f"Alina: {response_text[:50]}... (net_tokens: {tokens_net})")
     
@@ -481,6 +486,143 @@ class AlinaBot:
                 reply_markup=self.subscription_manager.get_payment_method_keyboard()
             )
             return False
+        return True
+    
+    async def _check_subscriber_limits(self, user_id: int, update: Update, for_image: bool = False) -> bool:
+        """Check daily limits for subscribers with 'tiredness' system
+        
+        Args:
+            user_id: Telegram user ID
+            update: Update object
+            for_image: Whether this is for an image message
+            
+        Returns:
+            True if user can continue, False if limits exceeded
+        """
+        usage = self.db.get_daily_usage(user_id)
+        
+        # Reset warning flags if it's a new day
+        last_warning_date = self.db.get_user_data(user_id, 'last_warning_date')
+        today = datetime.now().date().isoformat()
+        if last_warning_date != today:
+            self.db.save_user_data(user_id, 'last_warning_pct', 0.0)
+            self.db.save_user_data(user_id, 'last_warning_date', today)
+            self.db.save_user_data(user_id, 'last_tired_message_time', None)
+        
+        # Check if completely exhausted (100%)
+        messages_limit = self.config.subscriber_daily_messages
+        tokens_limit = self.config.subscriber_daily_tokens
+        images_limit = self.config.subscriber_daily_images
+        
+        # Check if user exceeded limits
+        limit_exceeded = False
+        if for_image and usage["images"] >= images_limit:
+            limit_exceeded = True
+            logger.warning(f"User {user_id} reached daily image limit: {usage['images']}/{images_limit}")
+        elif usage["messages"] >= messages_limit or usage["tokens"] >= tokens_limit:
+            limit_exceeded = True
+            logger.warning(f"User {user_id} reached daily limits: {usage['messages']}/{messages_limit} msgs, {usage['tokens']}/{tokens_limit} tokens")
+        
+        if limit_exceeded:
+            # Check when we last sent the "tired" message to avoid spam
+            last_tired_message = self.db.get_user_data(user_id, 'last_tired_message_time')
+            now = datetime.now()
+            
+            should_send_message = True
+            if last_tired_message:
+                last_time = datetime.fromisoformat(last_tired_message)
+                # Only send message if 10+ minutes passed since last one
+                if (now - last_time).total_seconds() < 600:  # 10 minutes
+                    should_send_message = False
+            
+            if should_send_message:
+                await update.message.reply_text(
+                    "Прости, но я совсем устала сегодня 😴\n"
+                    "Мне нужно отдохнуть до завтра. Спокойной ночи! 💜"
+                )
+                # Save timestamp of tired message
+                self.db.save_user_data(user_id, 'last_tired_message_time', now.isoformat())
+            
+            return False
+        
+        # Check tiredness levels with warnings
+        messages_pct = usage["messages"] / messages_limit
+        tokens_pct = usage["tokens"] / tokens_limit
+        images_pct = usage["images"] / images_limit if for_image else 0
+        max_pct = max(messages_pct, tokens_pct, images_pct)
+        
+        # Check when we last sent a tiredness warning
+        last_warning_pct = self.db.get_user_data(user_id, 'last_warning_pct', 0.0)
+        
+        # 90% - strong warning (only if we haven't warned at this level)
+        if max_pct >= 0.90 and last_warning_pct < 0.90:
+            await update.message.reply_text("Уф, я уже изрядно вымоталась... Давай помедленнее? 😅")
+            self.db.save_user_data(user_id, 'last_warning_pct', 0.90)
+        # 80% - gentle warning (only if we haven't warned at this level)
+        elif max_pct >= 0.80 and last_warning_pct < 0.80:
+            await update.message.reply_text("Я немного устала, но ещё могу поболтать 😊")
+            self.db.save_user_data(user_id, 'last_warning_pct', 0.80)
+        
+        return True
+    
+    async def _check_rate_limit(self, user_id: int, update: Update) -> bool:
+        """Check if user is sending messages too quickly
+        
+        Args:
+            user_id: Telegram user ID
+            update: Update object
+            
+        Returns:
+            True if rate limit passed, False if too fast
+        """
+        last_message_time = self.db.get_last_message_time(user_id)
+        
+        if last_message_time:
+            time_since_last = (datetime.now() - last_message_time).total_seconds()
+            
+            if time_since_last < self.config.rate_limit_seconds:
+                wait_time = self.config.rate_limit_seconds - time_since_last
+                logger.info(f"User {user_id} rate limited: {time_since_last:.1f}s since last message")
+                # Silently ignore - don't send error message to avoid spam
+                return False
+        
+        return True
+    
+    async def _check_spam_protection(self, user_id: int, update: Update) -> bool:
+        """Check for spam behavior and block if necessary
+        
+        Args:
+            user_id: Telegram user ID
+            update: Update object
+            
+        Returns:
+            True if check passed, False if user is blocked/suspicious
+        """
+        # Check if user is already blocked
+        if self.db.is_user_blocked(user_id):
+            block_until = self.db.get_user_data(user_id, 'block_until')
+            if block_until:
+                block_time = datetime.fromisoformat(block_until)
+                minutes_left = max(0, int((block_time - datetime.now()).total_seconds() / 60))
+                await update.message.reply_text(
+                    f"⛔️ Слишком много сообщений!\n\n"
+                    f"Попробуй снова через {minutes_left} мин."
+                )
+            return False
+        
+        # Check for spam (20+ messages in 1 minute)
+        recent_count = self.db.get_recent_message_count(user_id, minutes=1)
+        
+        if recent_count >= 20:
+            self.db.block_user_temporarily(user_id, minutes=5)
+            await update.message.reply_text(
+                "⛔️ Обнаружена подозрительная активность!\n\n"
+                "Ты отправляешь слишком много сообщений. "
+                "Возможность отправлять сообщения заблокирована на 5 минут."
+            )
+            logger.warning(f"User {user_id} BLOCKED for spam: {recent_count} messages in 1 minute")
+            return False
+        
         return True
     
     def _get_active_subscription_text(self, user_id: int) -> str:

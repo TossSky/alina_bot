@@ -348,6 +348,140 @@ class DialogueDB:
             count = cursor.fetchone()[0]
             return count > 0
     
+    def get_daily_usage(self, user_id: int) -> Dict:
+        """Get user's usage statistics for current day (00:00 - 23:59)
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            Dictionary with 'messages', 'tokens', and 'images' counts for today
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Count user messages today
+            cursor.execute("""
+                SELECT COUNT(*) FROM messages 
+                WHERE user_id = ? 
+                AND role = 'user'
+                AND DATE(timestamp) = DATE('now')
+            """, (user_id,))
+            messages_today = cursor.fetchone()[0]
+            
+            # Count images today
+            cursor.execute("""
+                SELECT COALESCE(SUM(image_count), 0) FROM messages 
+                WHERE user_id = ? 
+                AND has_image = 1
+                AND DATE(timestamp) = DATE('now')
+            """, (user_id,))
+            images_today = cursor.fetchone()[0]
+            
+            # Calculate tokens used today (sum from all messages today)
+            cursor.execute("""
+                SELECT user_id, timestamp FROM messages 
+                WHERE user_id = ?
+                AND DATE(timestamp) = DATE('now')
+                ORDER BY timestamp ASC
+            """, (user_id,))
+            messages_list = cursor.fetchall()
+            
+            # Estimate tokens (simplified - we'd need to recalculate properly)
+            # For now, use total tokens from users table and scale by message ratio
+            cursor.execute(
+                "SELECT total_messages, total_tokens FROM users WHERE user_id = ?",
+                (user_id,)
+            )
+            result = cursor.fetchone()
+            
+            if result and result[0] > 0:
+                total_msgs, total_tokens = result
+                # Estimate today's tokens proportionally
+                tokens_today = int((messages_today / max(total_msgs, 1)) * total_tokens)
+            else:
+                tokens_today = 0
+            
+            return {
+                "messages": messages_today,
+                "tokens": tokens_today,
+                "images": images_today
+            }
+    
+    def get_last_message_time(self, user_id: int) -> Optional[datetime]:
+        """Get timestamp of user's last message
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            Datetime of last message or None
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT timestamp FROM messages 
+                WHERE user_id = ? AND role = 'user'
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            """, (user_id,))
+            
+            result = cursor.fetchone()
+            if result:
+                return datetime.fromisoformat(result[0])
+            return None
+    
+    def get_recent_message_count(self, user_id: int, minutes: int = 1) -> int:
+        """Count messages sent by user in recent time window
+        
+        Args:
+            user_id: Telegram user ID
+            minutes: Time window in minutes
+            
+        Returns:
+            Number of messages in time window
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT COUNT(*) FROM messages 
+                WHERE user_id = ? 
+                AND role = 'user'
+                AND timestamp > datetime('now', '-' || ? || ' minutes')
+            """, (user_id, minutes))
+            
+            return cursor.fetchone()[0]
+    
+    def is_user_blocked(self, user_id: int) -> bool:
+        """Check if user is temporarily blocked for spam
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            True if user is currently blocked
+        """
+        block_until = self.get_user_data(user_id, 'block_until')
+        if not block_until:
+            return False
+        
+        block_time = datetime.fromisoformat(block_until)
+        return datetime.now() < block_time
+    
+    def block_user_temporarily(self, user_id: int, minutes: int = 5):
+        """Temporarily block user for spam
+        
+        Args:
+            user_id: Telegram user ID
+            minutes: Duration of block in minutes
+        """
+        from datetime import timedelta
+        block_until = (datetime.now() + timedelta(minutes=minutes)).isoformat()
+        self.save_user_data(user_id, 'block_until', block_until)
+        logger.warning(f"User {user_id} temporarily blocked for {minutes} minutes")
+    
     def _cleanup_old_messages(self, user_id: int, keep_last: int = 100):
         """Remove old messages keeping only recent ones
         
