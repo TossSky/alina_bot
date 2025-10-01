@@ -352,8 +352,25 @@ class AlinaBot:
         
         try:
             image_description, _ = await self.llm.generate_response(description_prompt)
-            image_description = (image_description or "")  
-            logger.info(f"Generated image description: {image_description}")
+            image_description = (image_description or "").strip()
+            
+            # Check if description is a refusal (contains apology or refusal phrases)
+            refusal_indicators = [
+                "извини", "не могу", "нельзя", "sorry", "cannot", "can't",
+                "отказ", "запрещ", "неприемлем", "inappropriate"
+            ]
+            
+            if any(indicator in image_description.lower() for indicator in refusal_indicators):
+                # Model refused - use neutral fallback
+                if "откровен" in response_text.lower() or "откровен" in image_description.lower():
+                    image_description = "вижу откровенное изображение"
+                else:
+                    image_description = "вижу изображение, которое не могу подробно описать"
+                logger.info(f"Model refused description, using fallback: {image_description}")
+            else:
+               
+                image_description = image_description
+                logger.info(f"Generated image description: {image_description}")
         except Exception as e:
             logger.error(f"Failed to generate image description: {e}")
             image_description = "изображение"
