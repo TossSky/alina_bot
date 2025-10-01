@@ -309,7 +309,7 @@ async def handle_start_payment(
     
     payment = yookassa.create_payment(
         amount=plan["price_rub"],
-        description=f"Подписка на бота Алину - {plan['name']}",
+        description=f"Подписка - {plan['name']}",
         metadata={
             "user_id": user_id,
             "plan_type": plan_type,
@@ -410,7 +410,7 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             
         await context.bot.send_invoice(
             chat_id=update.effective_chat.id,
-            title=f"Подписка на бота Алину - {plan['name']}",
+            title=f"Подписка - {plan['name']}",
             description=plan["description"],
             payload=f"stars_{plan_type}_{user_id}",
             provider_token="",
@@ -435,7 +435,7 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
         
         await context.bot.send_invoice(
             chat_id=update.effective_chat.id,
-            title=f"Подписка на бота Алину - {plan['name']}",
+            title=f"Подписка - {plan['name']}",
             description=plan["description"],
             payload=f"stars_{plan_type}_{user_id}",
             provider_token="",
@@ -461,7 +461,7 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
         
         payment = yookassa.create_payment(
             amount=plan["price_rub"],
-            description=f"Подписка на бота Алину - {plan['name']}",
+            description=f"Подписка - {plan['name']}",
             metadata={
                 "user_id": user_id,
                 "plan_type": plan_type,

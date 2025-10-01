@@ -153,7 +153,7 @@ class AlinaBot:
                 "Выберите способ оплаты:"
             )
         else:
-            text = "🌟 <b>Оформление подписки на бота Алину</b>\n\nВыберите способ оплаты:"
+            text = "🌟 <b>Оформление подписки</b>\n\nВыберите способ оплаты:"
 
         base_markup = self.subscription_manager.get_payment_method_keyboard()
         rows = [list(row) for row in base_markup.inline_keyboard]
