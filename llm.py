@@ -50,7 +50,15 @@ class AlinaLLM:
         self.model = model
         self.use_proxy = use_proxy
         self.proxy_url = proxy_url
-        self.base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+        
+        # Set base_url: use env var if set, otherwise use default OpenAI endpoint
+        base_url_env = os.getenv("OPENAI_BASE_URL", "").strip()
+        if base_url_env:
+            self.base_url = base_url_env
+        else:
+            # Always set default base_url when using proxy
+            self.base_url = "https://api.openai.com/v1" if use_proxy else None
+        
         self._encoder = None  # Cached tokenizer
     
     async def _create_client(self) -> AsyncOpenAI:
