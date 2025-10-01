@@ -346,13 +346,13 @@ class AlinaBot:
         
         # Generate short description of image for history context
         description_prompt = [
-            {"role": "system", "content": "Кратко опиши что изображено на фото одним коротким предложением (до 10 слов). Пиши от лица Алины, которая видит фото: 'вижу...', 'на фото...'"},
+            {"role": "system", "content": "Кратко опиши что изображено на фото одним-двумя короткими предложениями. Пиши от лица Алины, которая видит фото: 'вижу...', 'на фото...'. Будь конкретной."},
             image_message
         ]
         
         try:
             image_description, _ = await self.llm.generate_response(description_prompt)
-            image_description = (image_description or "").strip()[:100]  # Max 100 chars
+            image_description = (image_description or "")  
             logger.info(f"Generated image description: {image_description}")
         except Exception as e:
             logger.error(f"Failed to generate image description: {e}")
