@@ -344,6 +344,14 @@ class AlinaBot:
         response_text, _ = await self.llm.generate_response(messages)
         response_text = (response_text or "").strip() or "Хм, не уверена, что поняла."
         
+        # Generate short description of image for history context
+        description_prompt = [
+            {"role": "system", "content": "Кратко опиши что изображено на фото одним коротким предложением (до 10 слов). Пиши от лица Алины, которая видит фото: 'вижу...', 'на фото...'"},
+            image_message
+        ]
+        image_description, _ = await self.llm.generate_response(description_prompt)
+        image_description = (image_description or "").strip()[:100]  # Max 100 chars
+        
         # Calculate token usage
         user_tokens_now = self.llm.count_tokens_text(user_text) + self.llm._calculate_image_tokens("")
         output_tokens_now = self.llm.count_tokens_text(response_text)
@@ -352,8 +360,12 @@ class AlinaBot:
         # Send response
         await update.message.reply_text(response_text)
         
-        # Save to database
-        display_text = user_text if user_text else "[📸]"
+        # Save to database with image description
+        if user_text:
+            display_text = f"{user_text} [📸 {image_description}]"
+        else:
+            display_text = f"[📸 {image_description}]"
+        
         self.db.add_message(user_id, "user", display_text, 
                            has_image=True, image_count=1, image_hash=image_hash)
         self.db.add_message(user_id, "assistant", response_text, tokens_net)
