@@ -331,7 +331,7 @@ class SubscriptionManager:
         """
         keyboard = [
             [InlineKeyboardButton("⭐ Оплатить звёздочками", callback_data="payment_method_stars")],
-            [InlineKeyboardButton("💳 Оплатить рублями (ЮКасса)", callback_data="payment_method_rub")]
+            [InlineKeyboardButton("💳 Оплатить рублями", callback_data="payment_method_rub")]
         ]
         return InlineKeyboardMarkup(keyboard)
     
