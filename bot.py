@@ -349,8 +349,14 @@ class AlinaBot:
             {"role": "system", "content": "Кратко опиши что изображено на фото одним коротким предложением (до 10 слов). Пиши от лица Алины, которая видит фото: 'вижу...', 'на фото...'"},
             image_message
         ]
-        image_description, _ = await self.llm.generate_response(description_prompt)
-        image_description = (image_description or "").strip()[:100]  # Max 100 chars
+        
+        try:
+            image_description, _ = await self.llm.generate_response(description_prompt)
+            image_description = (image_description or "").strip()[:100]  # Max 100 chars
+            logger.info(f"Generated image description: {image_description}")
+        except Exception as e:
+            logger.error(f"Failed to generate image description: {e}")
+            image_description = "изображение"
         
         # Calculate token usage
         user_tokens_now = self.llm.count_tokens_text(user_text) + self.llm._calculate_image_tokens("")
@@ -366,6 +372,7 @@ class AlinaBot:
         else:
             display_text = f"[📸 {image_description}]"
         
+        logger.info(f"Saving to history: {display_text[:100]}...")
         self.db.add_message(user_id, "user", display_text, 
                            has_image=True, image_count=1, image_hash=image_hash)
         self.db.add_message(user_id, "assistant", response_text, tokens_net)
