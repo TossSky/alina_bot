@@ -197,11 +197,12 @@ class AlinaLLM:
             # Count input tokens for estimation
             input_tokens = self.count_tokens_messages(messages)
             
-            # Make API call with prompt caching enabled
+            # Make API call with prompt caching
+            # prompt_cache_key helps route requests to servers with cached prompts
             response = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                prompt_cache_key="alina:system:v1",  # Enable caching for system prompt
+                prompt_cache_key="alina:system:v1",  # Cache routing key for system prompt
                 **params
             )
             
@@ -210,10 +211,14 @@ class AlinaLLM:
             output_tokens = self.count_tokens_text(response_text)
             total_tokens = input_tokens + output_tokens
             
-            # Log detailed usage statistics if available
+            # Log detailed usage statistics with cached tokens
             if hasattr(response, "usage") and response.usage:
                 usage = response.usage
-                cached = getattr(usage.prompt_tokens_details, "cached_tokens", 0) if hasattr(usage, "prompt_tokens_details") else 0
+                
+                # Get cached tokens info (available in prompt_tokens_details)
+                cached = 0
+                if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
+                    cached = getattr(usage.prompt_tokens_details, "cached_tokens", 0)
                 
                 # Calculate costs
                 net_input = input_tokens - cached

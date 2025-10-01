@@ -22,7 +22,7 @@ class Config:
         self.openai_base_url = os.getenv("OPENAI_BASE_URL", "")
         
         # Proxy Settings (optional)
-        self.use_proxy = os.getenv("USE_PROXY", "false").lower() == "true"
+        self.use_proxy = True
         self.proxy_url = os.getenv("PROXY_URL", "")
         
         # Database Configuration
