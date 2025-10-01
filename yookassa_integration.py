@@ -31,7 +31,7 @@ class YooKassaClient:
         return_url: str = None,
         metadata: Dict = None
     ) -> Optional[Dict]:
-        """Create new payment in YooKassa system
+        """Create new payment in YooKassa system with receipt (54-ФЗ compliance)
         
         Args:
             amount: Payment amount in RUB
@@ -46,7 +46,7 @@ class YooKassaClient:
             # Generate idempotency key for safe retries
             idempotence_key = str(uuid.uuid4())
             
-            # Build payment data
+            # Build payment data with receipt (required by 54-ФЗ)
             payment_data = {
                 "amount": {
                     "value": f"{amount:.2f}",
@@ -57,7 +57,25 @@ class YooKassaClient:
                     "return_url": return_url or "https://t.me/Alina_buterbot"
                 },
                 "capture": True,  # Auto-capture payment
-                "description": description
+                "description": description,
+                "receipt": {
+                    "customer": {
+                        "email": "vyacheslav@totsky.ee"  # Your email for all receipts
+                    },
+                    "items": [
+                        {
+                            "description": description,
+                            "quantity": "1.00",  # Must be string with decimal
+                            "amount": {
+                                "value": f"{amount:.2f}",
+                                "currency": "RUB"
+                            },
+                            "vat_code": 1,  # НДС не облагается (для НПД/самозанятых)
+                            "payment_mode": "full_payment",  # Полная оплата
+                            "payment_subject": "service"  # Услуга (подписка)
+                        }
+                    ]
+                }
             }
             
             # Add metadata if provided
@@ -78,7 +96,7 @@ class YooKassaClient:
                 "metadata": payment.metadata or {}
             }
             
-            logger.info(f"Created payment {payment.id} for {amount} RUB")
+            logger.info(f"Created payment {payment.id} for {amount} RUB with receipt")
             return result
             
         except Exception as e:
