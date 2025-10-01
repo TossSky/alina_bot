@@ -1,12 +1,10 @@
 """Alina Bot - Main Application Module"""
 from datetime import datetime
-
 import logging
 import os
 import sys
-from typing import Dict, List
 
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -71,11 +69,9 @@ class AlinaBot:
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command with deep link support"""
-        user = update.effective_user
-        user_id = user.id
+        user_id = update.effective_user.id
         self.db.get_or_create_user(user_id=user_id)
         
-        # Check for deep link payment
         if context.args:
             arg = context.args[0]
             if arg.startswith('pay_'):
@@ -83,10 +79,9 @@ class AlinaBot:
                 await handle_start_payment(update, context, plan_type)
                 return
         
-        # Regular start message
         text = "Меня зовут Алина) рада буду пообщаться с тобой!\n\n📸 Теперь ты можешь отправлять мне картинки, и я их пойму!"
         await update.message.reply_text(text)
-        logger.info(f"New user started: {user.id}")
+        logger.info(f"New user started: {user_id}")
     
     async def restart(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /restart command - restarts bot process"""
@@ -129,7 +124,6 @@ class AlinaBot:
 
     async def subscribe(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscribe command"""
-        # Сначала удаляем команду пользователя
         try:
             await update.message.delete()
         except Exception as e:
@@ -140,30 +134,24 @@ class AlinaBot:
 
         if self.subscription_manager.has_active_subscription(user_id):
             info = self.subscription_manager.format_subscription_info(user_id)
-            text = f"✅ {info}\n\nХотите продлить подписку заранее?"
+            text = f"{info}\n\nХотите продлить подписку заранее?\n\nВыберите способ оплаты:"
         else:
-            text = "🌟 *Оформление подписки на бота Алину*"
+            text = "🌟 *Оформление подписки на бота Алину*\n\nВыберите способ оплаты:"
 
-        # Берём базовую клавиатуру из менеджера
         base_markup = self.subscription_manager.get_payment_method_keyboard()
-
-        # Пересобираем в список и добавляем кнопку ❌
         rows = [list(row) for row in base_markup.inline_keyboard]
         rows.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])
         reply_markup = InlineKeyboardMarkup(rows)
 
-        # Отправляем сообщение
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=text + "\n\nВыберите способ оплаты:",
+            text=text,
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup
         )
-
-
     
     async def subscription_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /subscription command - check subscription status (HTML formatting)"""
+        """Handle /subscription command - check subscription status"""
         user_id = update.effective_user.id
 
         sub = self.subscription_manager.get_active_subscription(user_id)
@@ -171,7 +159,6 @@ class AlinaBot:
             end_date = datetime.fromisoformat(sub["end_date"])
             days_left = max(0, (end_date - datetime.now()).days)
 
-            # Склонение
             n = abs(days_left)
             n10, n100 = n % 10, n % 100
             if n10 == 1 and n100 != 11:
@@ -191,26 +178,16 @@ class AlinaBot:
                 "Используйте /subscribe для оформления подписки"
             )
 
-        # 1) Сначала отправляем новое сообщение бота
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=text,
             parse_mode=ParseMode.HTML
         )
 
-        # 2) Потом удаляем команду пользователя
         try:
             await update.message.delete()
         except Exception as e:
             logger.warning(f"Не удалось удалить команду /subscription: {e}")
-
-
-        # 2) Потом удаляем команду пользователя
-        try:
-            await update.message.delete()
-        except Exception as e:
-            logger.warning(f"Не удалось удалить команду /subscription: {e}")
-
     
     async def clean(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /clean command - remove reply keyboard"""
@@ -222,11 +199,6 @@ class AlinaBot:
     
     async def faq(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /faq command - show interactive FAQ with inline keyboard"""
-        try:
-            await update.message.delete()
-        except Exception as e:
-            logger.warning(f"Не удалось удалить сообщение /faq: {e}")
-        
         faq_items = self.docs_service.parse_faq_items()
         
         if not faq_items:
@@ -237,6 +209,12 @@ class AlinaBot:
         context.user_data['faq_page'] = 0
         
         await self._show_faq_inline(update.message, context, page=0)
+        
+        try:
+            await update.message.delete()
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение /faq: {e}")
+        
         logger.info(f"FAQ shown to user {update.effective_user.id}")
     
     async def _show_faq_inline(self, message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, edit: bool = False):
@@ -320,16 +298,11 @@ class AlinaBot:
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await query.message.edit_text(response_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
-
-    
-
     
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle photo messages with vision"""
-        user = update.effective_user
-        user_id = user.id
+        user_id = update.effective_user.id
         
-        # Проверяем подписку и лимиты для изображений
         if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
             usage = self.db.get_user_usage(user_id)
             if usage["images"] >= self.config.free_images_limit:
@@ -344,10 +317,7 @@ class AlinaBot:
             if not await self._check_limits(user_id, update):
                 return
         
-        # Получаем фото
-        photo = update.message.photo[-1]  # Берём самое большое фото
-        
-        # Проверяем размер
+        photo = update.message.photo[-1]
         file_size_mb = photo.file_size / (1024 * 1024)
         if file_size_mb > self.config.max_image_size_mb:
             await update.message.reply_text(
@@ -356,24 +326,16 @@ class AlinaBot:
             )
             return
         
-        # Скачиваем фото
         file = await context.bot.get_file(photo.file_id)
         image_bytes = await file.download_as_bytearray()
-        
-        # Получаем хеш изображения для проверки дубликатов
         image_hash = get_image_hash(bytes(image_bytes))
         is_duplicate = self.db.is_duplicate_image(user_id, image_hash, minutes=30)
-        
-        # Получаем caption или используем дефолтный текст
         user_text = (update.message.caption or "").strip()
         
         logger.info(f"User {user_id} sent photo with caption: {user_text[:50]}...{' (DUPLICATE)' if is_duplicate else ''}")
         
-        # Получаем актуальный промпт
         current_personality = self.docs_service.get_personality()
         current_system_prompt = enrich_prompt(current_personality, {})
-        
-        # Создаём сообщение с изображением
         image_message = create_image_message(
             image_bytes=bytes(image_bytes),
             text=user_text,
@@ -382,31 +344,23 @@ class AlinaBot:
             detail=self.config.image_detail_level
         )
         
-        # Получаем историю диалогов (только текст)
-        history = self.db.get_dialogue_history(user_id, limit=10)  # Меньше истории при изображениях
-        
-        # Формируем messages: system + history + image
+        history = self.db.get_dialogue_history(user_id, limit=10)
         messages = [{"role": "system", "content": current_system_prompt}] + history + [image_message]
         
-        # Генерация ответа
         response_text, _ = await self.llm.generate_response(messages)
         response_text = (response_text or "").strip() or "Хм, не уверена, что поняла."
         
-        # Считаем токены
         user_tokens_now = self.llm.count_tokens_text(user_text) + self.llm._calculate_image_tokens("")
         output_tokens_now = self.llm.count_tokens_text(response_text)
         tokens_net = user_tokens_now + output_tokens_now
         
-        # Отправляем ответ
         await update.message.reply_text(response_text)
         
-        # Сохраняем в БД (текст + пометка об изображении)
-        display_text = user_text if user_text else "[📸]"  # Если нет текста, просто иконка
+        display_text = user_text if user_text else "[📸]"
         self.db.add_message(user_id, "user", display_text, 
                            has_image=True, image_count=1, image_hash=image_hash)
         self.db.add_message(user_id, "assistant", response_text, tokens_net)
         
-        # Проверяем лимиты после
         if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
             usage = self.db.get_user_usage(user_id)
             if (usage["messages"] >= self.config.free_messages_limit) or \
@@ -423,65 +377,48 @@ class AlinaBot:
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Main message handler with LLM integration"""
-        user = update.effective_user
-        user_id = user.id
+        user_id = update.effective_user.id
         user_message = (update.message.text or "").strip()
         
         if not user_message:
             return
-
         
-        # Check subscription limits if required
         if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
             if not await self._check_limits(user_id, update):
                 return
         
-        # Log and save user message
         logger.info(f"User {user_id}: {user_message[:50]}...")
         self.db.add_message(user_id, "user", user_message)
         
-        # Get conversation history
         history = self.db.get_dialogue_history(user_id, limit=20)
-        
-        # Получаем актуальный промпт из кеша
         current_personality = self.docs_service.get_personality()
         current_system_prompt = enrich_prompt(current_personality, {})
-        
         messages = [{"role": "system", "content": current_system_prompt}] + history
         
-        # Token counting for logging
         sys_tokens = self.llm.count_tokens_messages([{"role": "system", "content": current_system_prompt}])
         hist_tokens = self.llm.count_tokens_messages(history)
         total_est = self.llm.count_tokens_messages(messages)
         logger.info(f"Context: sys={sys_tokens}, hist={hist_tokens}, total={total_est}")
         
-        # Генерация ответа
         response_text, _ = await self.llm.generate_response(messages)
         response_text = (response_text or "").strip() or "Хм, не уверена, что поняла."
 
-        # Считаем лимит ТОЛЬКО по текущему user и текущему ответу бота
         user_tokens_now = self.llm.count_tokens_text(user_message)
         output_tokens_now = self.llm.count_tokens_text(response_text)
         tokens_net = user_tokens_now + output_tokens_now
 
-        # Отправляем только ответ Алины
         await update.message.reply_text(response_text)
-
-        
         self.db.add_message(user_id, "assistant", response_text, tokens_net)
 
-        # Если подписки нет и по итогу ЭТОГО сообщения лимит пробит — отдельное уведомление
         if self.config.subscription_required and not self.subscription_manager.has_active_subscription(user_id):
             usage = self.db.get_user_usage(user_id)
             if (usage["messages"] >= self.config.free_messages_limit) or (usage["tokens"] >= self.config.free_tokens_limit):
-
                 await update.message.reply_text(
                     "⚠️ `Вы исчерпали бесплатный лимит сообщений`\n\n"
                     "🌟 Для продолжения общения подключите /subscribe",
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=self.subscription_manager.get_payment_method_keyboard()
                 )
-
 
         logger.info(f"Alina: {response_text[:50]}... (net_tokens: {tokens_net})")
     
@@ -492,28 +429,24 @@ class AlinaBot:
         if usage["messages"] >= self.config.free_messages_limit or \
            usage["tokens"] >= self.config.free_tokens_limit or \
            usage["images"] >= self.config.free_images_limit:
-            
             await update.message.reply_text(
-                    "⚠️ `Вы исчерпали бесплатный лимит`\n\n"
-                    "🌟 Для продолжения общения подключите /subscribe",
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=self.subscription_manager.get_payment_method_keyboard()
-                )
+                "⚠️ `Вы исчерпали бесплатный лимит`\n\n"
+                "🌟 Для продолжения общения подключите /subscribe",
+                parse_mode=ParseMode.MARKDOWN_V2,
+                reply_markup=self.subscription_manager.get_payment_method_keyboard()
+            )
             return False
         return True
-    
     
     async def post_init(self, application: Application) -> None:
         """Called after the bot starts - initialize background tasks"""
         logger.info("Initializing background tasks...")
         self.docs_service.start_periodic_updates()
         
-        # Store managers in bot_data
         context = application.bot_data
         context['subscription_manager'] = self.subscription_manager
         context['yookassa_client'] = self.yookassa_client
         
-        # Start payment checker only if not using webhook
         if not self.config.use_webhook:
             logger.info("🔄 Starting payment status checker (polling mode)")
             self.payment_checker.start(application.bot)
@@ -527,7 +460,6 @@ class AlinaBot:
         logger.info("Stopping background tasks...")
         self.docs_service.stop_periodic_updates()
         
-        # Stop payment checker if it was running
         if not self.config.use_webhook:
             self.payment_checker.stop()
         
@@ -550,7 +482,6 @@ class AlinaBot:
         self.application.bot_data['subscription_manager'] = self.subscription_manager
         self.application.bot_data['yookassa_client'] = self.yookassa_client
         
-        # Register handlers
         self.application.add_handlers([
             CommandHandler("start", self.start),
             CommandHandler("restart", self.restart),

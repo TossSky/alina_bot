@@ -17,26 +17,25 @@ logger = logging.getLogger(__name__)
 class SubscriptionManager:
     """Manages user subscriptions and payment processing"""
     
-    # Планы подписки
     SUBSCRIPTION_PLANS = {
         "day": {
             "name": "День",
-            "price_rub": 99.00,  # RUB
-            "price_stars": 60,   # Telegram Stars (≈102 RUB)
+            "price_rub": 99.00,
+            "price_stars": 60,
             "days": 1,
             "description": "Подписка на 1 день"
         },
         "week": {
             "name": "Неделя",
-            "price_rub": 499.00,  # RUB
-            "price_stars": 300,   # Telegram Stars (≈510 RUB)
+            "price_rub": 499.00,
+            "price_stars": 300,
             "days": 7,
             "description": "Подписка на 7 дней"
         },
         "month": {
             "name": "Месяц",
-            "price_rub": 1499.00,  # RUB
-            "price_stars": 900,    # Telegram Stars (≈1530 RUB)
+            "price_rub": 1499.00,
+            "price_stars": 900,
             "days": 30,
             "description": "Подписка на 30 дней"
         }
@@ -75,11 +74,10 @@ class SubscriptionManager:
                 ON subscriptions (user_id, is_active, end_date)
             """)
             
-            # Добавляем колонку payment_method если её нет
             try:
                 cursor.execute("ALTER TABLE subscriptions ADD COLUMN payment_method TEXT DEFAULT 'rub'")
             except sqlite3.OperationalError:
-                pass  # Column already exists
+                pass
     
     def _init_payment_table(self):
         """Create payment tracking table"""
@@ -100,7 +98,6 @@ class SubscriptionManager:
                 )
             """)
             
-            # Добавляем колонку payment_method если её нет
             try:
                 cursor.execute("ALTER TABLE pending_payments ADD COLUMN payment_method TEXT DEFAULT 'rub'")
             except sqlite3.OperationalError:
@@ -142,12 +139,11 @@ class SubscriptionManager:
         plan = self.SUBSCRIPTION_PLANS[plan_type]
         duration = timedelta(days=plan["days"])
         amount = plan["price_rub"] if payment_method == "rub" else plan["price_stars"]
-        currency = "RUB" if payment_method == "rub" else "XTR"  # XTR = Telegram Stars
+        currency = "RUB" if payment_method == "rub" else "XTR"
         
         with sqlite3.connect(self.db.db_path) as conn:
             cursor = conn.cursor()
             
-            # Check for existing active subscription
             cursor.execute("""
                 SELECT id, end_date FROM subscriptions
                 WHERE user_id = ? AND is_active = 1 AND end_date > CURRENT_TIMESTAMP
@@ -158,7 +154,6 @@ class SubscriptionManager:
             now = datetime.now()
             
             if existing:
-                # Extend existing subscription
                 sub_id, current_end = existing
                 current_end_dt = datetime.fromisoformat(current_end)
                 new_end = max(current_end_dt, now) + duration
@@ -171,7 +166,6 @@ class SubscriptionManager:
                 
                 logger.info(f"Extended subscription for user {user_id}: {current_end_dt} -> {new_end}")
             else:
-                # Create new subscription
                 new_end = now + duration
                 cursor.execute("""
                     INSERT INTO subscriptions 
@@ -244,7 +238,6 @@ class SubscriptionManager:
             )
             keyboard.append([button])
         
-        # Кнопка "Назад"
         keyboard.append([InlineKeyboardButton("◀️ Назад к выбору способа оплаты", callback_data="back_to_payment_methods")])
         
         return InlineKeyboardMarkup(keyboard)
@@ -254,14 +247,11 @@ class SubscriptionManager:
         subscription = self.get_active_subscription(user_id)
 
         if not subscription:
-            # /subscribe и /subscription без активной подписки
-            # Первая строка подчёркнута, вторая — обычная
             return "✖️ __Сейчас у вас нет активной подписки__\n\nИспользуйте /subscribe для оформления подписки"
 
         end_date = datetime.fromisoformat(subscription["end_date"])
         days_left = (end_date - datetime.now()).days
 
-        # Склонение для "дней"
         n = abs(days_left)
         n10, n100 = n % 10, n % 100
         if n10 == 1 and n100 != 11:
@@ -271,59 +261,13 @@ class SubscriptionManager:
         else:
             days_word = "дней"
 
-        # Первая строка подчёркнута, число+слово — жирно+курсив
         return f"✅ __У вас есть активная подписка__\n\nДо конца подписки осталось ___{days_left} {days_word}___"
-
-
-
-
-
-
-
-# ================ STARS PAYMENT HANDLERS ================
-
-async def create_stars_invoice(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    plan_type: str
-) -> None:
-    """Create and send Telegram Stars invoice"""
-    manager = context.bot_data.get('subscription_manager')
-    
-    if not manager:
-        await update.callback_query.message.reply_text("Ошибка: система подписок не инициализирована")
-        return
-    
-    if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
-        await update.callback_query.message.reply_text("Неверный тип подписки")
-        return
-    
-    plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
-    user_id = update.effective_user.id
-
-    # Create invoice for Telegram Stars
-    await context.bot.send_invoice(
-        chat_id=update.effective_chat.id,
-        title=f"Подписка на бота Алину - {plan['name']}",
-        description=plan["description"],
-        payload=f"stars_{plan_type}_{user_id}",  # Unique payload
-        provider_token="",  # Empty for Stars
-        currency="XTR",  # Telegram Stars currency
-        prices=[LabeledPrice(label="⭐", amount=plan["price_stars"])],
-        is_flexible=False,
-        start_parameter=f"subscription-{plan_type}",
-    )
-    
-    logger.info(f"Created Stars invoice for user {user_id}, plan {plan_type}, amount {plan['price_stars']} stars")
 
 
 async def handle_stars_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle pre-checkout query for Stars payment"""
     query = update.pre_checkout_query
-    
-    # Always approve Stars payments
     await query.answer(ok=True)
-    
     logger.info(f"Pre-checkout approved for Stars payment: {query.invoice_payload}")
 
 
@@ -338,13 +282,11 @@ async def handle_stars_successful_payment(update: Update, context: ContextTypes.
     user_id = update.effective_user.id
     payment = update.message.successful_payment
     
-    # Parse payload: "stars_day_123456"
     payload_parts = payment.invoice_payload.split('_')
     
     if len(payload_parts) >= 2 and payload_parts[0] == "stars":
         plan_type = payload_parts[1]
         
-        # Activate subscription
         if manager.add_subscription(user_id, plan_type, payment.telegram_payment_charge_id, payment_method="stars"):
             plan = SubscriptionManager.SUBSCRIPTION_PLANS.get(plan_type, {})
             
@@ -366,8 +308,6 @@ async def handle_stars_successful_payment(update: Update, context: ContextTypes.
         logger.error(f"Invalid Stars payment payload: {payment.invoice_payload}")
 
 
-# ================ YOOKASSA (RUB) PAYMENT HANDLERS ================
-
 async def handle_start_payment(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -388,7 +328,6 @@ async def handle_start_payment(
     plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
     user_id = update.effective_user.id
     
-    # Create payment in YooKassa
     payment = yookassa.create_payment(
         amount=plan["price_rub"],
         description=f"Подписка на бота Алину - {plan['name']}",
@@ -403,10 +342,8 @@ async def handle_start_payment(
         await update.message.reply_text("Ошибка создания платежа. Попробуйте позже.")
         return
     
-    # Save pending payment
     manager.save_pending_payment(user_id, payment["id"], plan_type, plan["price_rub"], payment_method="rub")
     
-    # Send payment link with inline button
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("💳 Оплатить", url=payment["confirmation_url"])]
     ])
@@ -430,18 +367,16 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
     await query.answer()
     
     data = query.data
+    manager = context.bot_data.get('subscription_manager')
     
-    # Обработка выбора способа оплаты
     if data == "payment_method_stars":
-        manager = context.bot_data.get('subscription_manager')
-        # Клавиатура: варианты планов + Назад + ❌
         keyboard = []
         for plan_id, plan in SubscriptionManager.SUBSCRIPTION_PLANS.items():
             price = plan["price_stars"]
             keyboard.append([InlineKeyboardButton(f"{plan['name']} - {price} ⭐", callback_data=f"stars_direct_{plan_id}")])
 
         keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_payment_methods")])
-        keyboard.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])  # добавили крестик
+        keyboard.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])
 
         await query.message.edit_text(
             "⭐ *Оплата звёздочками Telegram*\n\n"
@@ -450,14 +385,11 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
-
     
     elif data == "payment_method_rub":
-        manager = context.bot_data.get('subscription_manager')
-        # Базовый markup -> добавляем ❌
         base = manager.get_subscription_keyboard("rub")
         rows = [list(row) for row in base.inline_keyboard]
-        rows.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])  # добавили крестик
+        rows.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])
         reply_markup = InlineKeyboardMarkup(rows)
 
         await query.message.edit_text(
@@ -467,13 +399,11 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             reply_markup=reply_markup
         )
         return
-
     
     elif data == "back_to_payment_methods":
-        manager = context.bot_data.get('subscription_manager')
         base = manager.get_payment_method_keyboard()
         rows = [list(row) for row in base.inline_keyboard]
-        rows.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])  # добавили крестик
+        rows.append([InlineKeyboardButton("❌", callback_data="close_subscribe")])
         reply_markup = InlineKeyboardMarkup(rows)
 
         await query.message.edit_text(
@@ -483,19 +413,12 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             reply_markup=reply_markup
         )
         return
-
     
-    # Обработка прямого выбора плана для звездочек (новый обработчик)
     if data.startswith("stars_direct_"):
         plan_type = data.replace("stars_direct_", "")
-        manager = context.bot_data.get('subscription_manager')
         
-        if not manager:
-            await query.answer("Ошибка: система подписок не инициализирована", show_alert=True)
-            return
-        
-        if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
-            await query.answer("Неверный тип подписки", show_alert=True)
+        if not manager or plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
+            await query.answer("Ошибка: неверный тип подписки", show_alert=True)
             return
         
         plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
@@ -505,77 +428,58 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             await query.message.delete()
         except:
             pass
-        # Отправляем инвойс для оплаты звёздочками
+            
         await context.bot.send_invoice(
             chat_id=update.effective_chat.id,
             title=f"Подписка на бота Алину - {plan['name']}",
             description=plan["description"],
             payload=f"stars_{plan_type}_{user_id}",
-            provider_token="",  # Пустой для Stars
-            currency="XTR",     # Telegram Stars
+            provider_token="",
+            currency="XTR",
             prices=[LabeledPrice(label="⭐", amount=plan["price_stars"])],
             is_flexible=False,
             start_parameter=f"subscription-{plan_type}",
         )
-
         
-        await query.answer()
         logger.info(f"Created Stars invoice for user {user_id}, plan {plan_type}, amount {plan['price_stars']} stars")
         return
     
-    # Обработка выбора конкретного плана (старый обработчик для обратной совместимости)
     if data.startswith("subscribe_stars_"):
-        # Оплата звёздочками - сразу отправляем инвойс
         plan_type = data.replace("subscribe_stars_", "")
-        manager = context.bot_data.get('subscription_manager')
         
-        if not manager:
-            await query.answer("Ошибка: система подписок не инициализирована", show_alert=True)
-            return
-        
-        if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
-            await query.answer("Неверный тип подписки", show_alert=True)
+        if not manager or plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
+            await query.answer("Ошибка: неверный тип подписки", show_alert=True)
             return
         
         plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
         user_id = update.effective_user.id
         
-        # Отправляем инвойс для оплаты звёздочками
         await context.bot.send_invoice(
             chat_id=update.effective_chat.id,
             title=f"Подписка на бота Алину - {plan['name']}",
             description=plan["description"],
             payload=f"stars_{plan_type}_{user_id}",
-            provider_token="",  # Пустой для Stars
-            currency="XTR",  # Telegram Stars
+            provider_token="",
+            currency="XTR",
             prices=[LabeledPrice(label="⭐", amount=plan["price_stars"])],
             is_flexible=False,
             start_parameter=f"subscription-{plan_type}",
         )
         
-        await query.answer()
         logger.info(f"Created Stars invoice for user {user_id}, plan {plan_type}, amount {plan['price_stars']} stars")
         return
     
     elif data.startswith("subscribe_rub_"):
-        # Оплата рублями через ЮКассу
         plan_type = data.replace("subscribe_rub_", "")
-        
-        manager = context.bot_data.get('subscription_manager')
         yookassa = context.bot_data.get('yookassa_client')
         
-        if not manager or not yookassa:
+        if not manager or not yookassa or plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
             await query.message.reply_text("Ошибка: система оплаты не инициализирована")
-            return
-        
-        if plan_type not in SubscriptionManager.SUBSCRIPTION_PLANS:
-            await query.message.reply_text("Неверный тип подписки")
             return
         
         plan = SubscriptionManager.SUBSCRIPTION_PLANS[plan_type]
         user_id = update.effective_user.id
         
-        # Create payment in YooKassa
         payment = yookassa.create_payment(
             amount=plan["price_rub"],
             description=f"Подписка на бота Алину - {plan['name']}",
@@ -590,10 +494,8 @@ async def handle_subscribe_callback(update: Update, context: ContextTypes.DEFAUL
             await query.message.reply_text("Ошибка создания платежа. Попробуйте позже.")
             return
         
-        # Save pending payment
         manager.save_pending_payment(user_id, payment["id"], plan_type, plan["price_rub"], payment_method="rub")
         
-        # Send payment link
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("💳 Оплатить", url=payment["confirmation_url"])]
         ])
@@ -629,7 +531,6 @@ async def process_payment_notification(payment_data: dict, context: ContextTypes
         logger.error("No payment_id in notification")
         return False
     
-    # Get pending payment info
     pending = manager.get_pending_payment(payment_id)
     
     if not pending:
@@ -640,7 +541,6 @@ async def process_payment_notification(payment_data: dict, context: ContextTypes
     plan_type = pending["plan_type"]
     payment_method = pending.get("payment_method", "rub")
     
-    # Handle payment success
     if status == "succeeded":
         if manager.add_subscription(user_id, plan_type, payment_id, payment_method=payment_method):
             manager.update_payment_status(payment_id, "succeeded")
