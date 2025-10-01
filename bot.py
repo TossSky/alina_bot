@@ -133,10 +133,27 @@ class AlinaBot:
         context.bot_data['subscription_manager'] = self.subscription_manager
 
         if self.subscription_manager.has_active_subscription(user_id):
-            info = self.subscription_manager.format_subscription_info(user_id)
-            text = f"{info}\n\nХотите продлить подписку заранее?\n\nВыберите способ оплаты:"
+            sub = self.subscription_manager.get_active_subscription(user_id)
+            end_date = datetime.fromisoformat(sub["end_date"])
+            days_left = max(0, (end_date - datetime.now()).days)
+
+            n = abs(days_left)
+            n10, n100 = n % 10, n % 100
+            if n10 == 1 and n100 != 11:
+                days_word = "день"
+            elif 2 <= n10 <= 4 and not (12 <= n100 <= 14):
+                days_word = "дня"
+            else:
+                days_word = "дней"
+
+            text = (
+                "✅ <u>У вас есть активная подписка</u>\n\n"
+                f"До конца подписки осталось <b><i>{days_left} {days_word}</i></b>\n\n"
+                "Хотите продлить подписку заранее?\n\n"
+                "Выберите способ оплаты:"
+            )
         else:
-            text = "🌟 *Оформление подписки на бота Алину*\n\nВыберите способ оплаты:"
+            text = "🌟 <b>Оформление подписки на бота Алину</b>\n\nВыберите способ оплаты:"
 
         base_markup = self.subscription_manager.get_payment_method_keyboard()
         rows = [list(row) for row in base_markup.inline_keyboard]
@@ -146,7 +163,7 @@ class AlinaBot:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=text,
-            parse_mode=ParseMode.MARKDOWN_V2,
+            parse_mode=ParseMode.HTML,
             reply_markup=reply_markup
         )
     

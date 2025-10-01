@@ -241,27 +241,6 @@ class SubscriptionManager:
         keyboard.append([InlineKeyboardButton("◀️ Назад к выбору способа оплаты", callback_data="back_to_payment_methods")])
         
         return InlineKeyboardMarkup(keyboard)
-    
-    def format_subscription_info(self, user_id: int) -> str:
-        """Format subscription status message (MarkdownV2-ready)"""
-        subscription = self.get_active_subscription(user_id)
-
-        if not subscription:
-            return "✖️ __Сейчас у вас нет активной подписки__\n\nИспользуйте /subscribe для оформления подписки"
-
-        end_date = datetime.fromisoformat(subscription["end_date"])
-        days_left = (end_date - datetime.now()).days
-
-        n = abs(days_left)
-        n10, n100 = n % 10, n % 100
-        if n10 == 1 and n100 != 11:
-            days_word = "день"
-        elif 2 <= n10 <= 4 and not (12 <= n100 <= 14):
-            days_word = "дня"
-        else:
-            days_word = "дней"
-
-        return f"✅ __У вас есть активная подписка__\n\nДо конца подписки осталось ___{days_left} {days_word}___"
 
 
 async def handle_stars_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
