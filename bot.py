@@ -520,21 +520,22 @@ class AlinaBot:
         Returns:
             Enhanced system prompt with time awareness
         """
-        # Add time awareness to the beginning of the prompt
-        time_info = (
-            f"Текущее время: {time_context.get('time_of_day')}, "
-            f"{time_context.get('weekday_name')}, {time_context.get('date')}. "
+        # Создаем контекст времени для внутреннего использования (Алина знает, но не озвучивает)
+        time_awareness = (
+            f"Текущий контекст времени (используй эту информацию только если спросят или это релевантно): "
+            f"{time_context.get('time_of_day')}, {time_context.get('weekday_name')}, {time_context.get('date')}"
         )
         
-        # Add weekend context if applicable
         if time_context.get('is_weekend'):
-            time_info += "Сейчас выходные. "
+            time_awareness += ", выходной"
         
-        # Enrich with mood context based on time
+        time_awareness += ". Не упоминай дату/день недели/год без необходимости - отвечай естественно как живой человек."
+        
+        # Обогащаем промпт с контекстом настроения
         enriched = enrich_prompt(base_personality, time_context)
         
-        # Combine everything
-        return f"{time_info}\n\n{enriched}"
+        # Объединяем всё вместе
+        return f"{time_awareness}\n\n{enriched}"
     
     
     async def _check_limits(self, user_id: int, update: Update) -> bool:
