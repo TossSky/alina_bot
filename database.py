@@ -207,13 +207,14 @@ class DialogueDB:
                     "UPDATE users SET total_tokens = total_tokens + ? WHERE user_id = ?",
                     (tokens_used, user_id)
                 )
-            
-            # Periodic cleanup (10% chance to run)
-            if role == "user" and random.random() < 0.1:
-                try:
-                    self._cleanup_old_messages(user_id)
-                except Exception as e:
-                    logger.warning(f"Cleanup skipped: {e}")
+        
+        # Cleanup старых сообщений ПОСЛЕ завершения транзакции (10% шанс)
+        if role == "user" and random.random() < 0.1:
+            try:
+                self._cleanup_old_messages(user_id)
+            except Exception as e:
+                # Просто игнорируем ошибку - это не критично
+                logger.debug(f"Cleanup skipped for user {user_id}: {e}")
     
     def get_dialogue_history(self, user_id: int, limit: int = 20) -> List[Dict[str, str]]:
         """Get conversation history for user with day markers
