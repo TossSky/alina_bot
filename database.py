@@ -4,10 +4,13 @@ import json
 import logging
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Moscow timezone (UTC+3)
+MOSCOW_TZ = timezone(timedelta(hours=3))
 
 
 class DialogueDB:
@@ -209,41 +212,140 @@ class DialogueDB:
         
         # Cleanup запускается через периодическую фоновую задачу
     
+    def _get_relative_time_label(self, msg_datetime: datetime, now: datetime) -> str:
+        """Получить относительную временную метку для сообщения
+        
+        Args:
+            msg_datetime: Время сообщения
+            now: Текущее время
+            
+        Returns:
+            Относительная метка ("сегодня", "вчера", "3 дня назад")
+        """
+        # Разница в днях
+        days_diff = (now.date() - msg_datetime.date()).days
+        
+        if days_diff == 0:
+            return "сегодня"
+        elif days_diff == 1:
+            return "вчера"
+        elif days_diff == 2:
+            return "позавчера"
+        elif days_diff <= 6:
+            # 3-6 дней назад
+            if days_diff == 3 or days_diff == 4:
+                return f"{days_diff} дня назад"
+            else:
+                return f"{days_diff} дней назад"
+        else:
+            # Для старых сообщений - полная дата
+            months_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
+                         "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+            return f"{msg_datetime.day} {months_ru[msg_datetime.month - 1]}"
+    
+    def _get_time_context(self, msg_datetime: datetime, now: datetime) -> str:
+        """Получить временной контекст для сообщения
+        
+        Args:
+            msg_datetime: Время сообщения
+            now: Текущее время
+            
+        Returns:
+            Временной контекст ("несколько часов назад", "в 14:30" и т.д.)
+        """
+        time_diff = now - msg_datetime
+        hours_diff = time_diff.total_seconds() / 3600
+        
+        # Если сообщение сегодня
+        if now.date() == msg_datetime.date():
+            if hours_diff < 1:
+                minutes_diff = int(time_diff.total_seconds() / 60)
+                if minutes_diff < 5:
+                    return "только что"
+                elif minutes_diff < 60:
+                    return f"{minutes_diff} мин назад"
+            elif hours_diff < 3:
+                hours = int(hours_diff)
+                if hours == 1:
+                    return "час назад"
+                else:
+                    return f"{hours} часа назад"
+            else:
+                # Для более старых сообщений сегодня - время
+                return f"в {msg_datetime.strftime('%H:%M')}"
+        
+        # Для вчерашних - тоже время
+        return f"в {msg_datetime.strftime('%H:%M')}"
+    
     def get_dialogue_history(self, user_id: int, limit: int = 20) -> List[Dict[str, str]]:
-        """Get conversation history for user with day markers
+        """Получить историю диалога с относительными временными метками
         
         Args:
             user_id: Telegram user ID
-            limit: Maximum number of recent messages to retrieve
+            limit: Максимум последних сообщений
             
         Returns:
-            List of messages with 'role' and 'content' keys, including day separators
+            Список сообщений с относительными временными метками
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
             cursor.execute(
-                "SELECT role, content, DATE(timestamp) as msg_date FROM messages "
+                "SELECT role, content, timestamp FROM messages "
                 "WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
                 (user_id, limit)
             )
             
             messages = cursor.fetchall()
             
-            # Build history with day markers in chronological order
-            result = []
-            last_date = None
+            # Текущее время в МСК (UTC+3)
+            now = datetime.now(MOSCOW_TZ)
             
-            for role, content, msg_date in reversed(messages):
-                # Add day marker when date changes
-                if last_date is not None and msg_date != last_date:
+            # Строим историю в хронологическом порядке
+            result = []
+            last_date_label = None
+            last_time_group = None
+            
+            for role, content, timestamp_str in reversed(messages):
+                # Преобразуем timestamp из UTC в МСК
+                msg_datetime = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                if msg_datetime.tzinfo is None:
+                    msg_datetime = msg_datetime.replace(tzinfo=timezone.utc)
+                msg_datetime = msg_datetime.astimezone(MOSCOW_TZ)
+                
+                # Получаем относительную метку дня
+                current_date_label = self._get_relative_time_label(msg_datetime, now)
+                
+                # Добавляем маркер дня при смене даты
+                if last_date_label is not None and current_date_label != last_date_label:
                     result.append({
                         "role": "system",
-                        "content": f"[Новый день: {msg_date}]"
+                        "content": f"[Новый день: {current_date_label}]"
+                    })
+                    last_time_group = None  # Сбрасываем временную группу
+                elif last_date_label is None:
+                    # Первое сообщение
+                    result.append({
+                        "role": "system",
+                        "content": f"[Диалог начался {current_date_label}]"
                     })
                 
+                # Добавляем временные метки для сообщений внутри дня
+                time_context = self._get_time_context(msg_datetime, now)
+                current_time_group = time_context
+                
+                # Добавляем временной маркер только при значительной смене времени
+                if last_time_group != current_time_group and current_date_label == "сегодня":
+                    # Добавляем временной маркер только для "сегодня"
+                    if time_context not in ["только что"]:
+                        result.append({
+                            "role": "system",
+                            "content": f"[{time_context}]"
+                        })
+                
                 result.append({"role": role, "content": content})
-                last_date = msg_date
+                last_date_label = current_date_label
+                last_time_group = current_time_group
             
             return result
     
