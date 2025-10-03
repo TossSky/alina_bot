@@ -801,7 +801,8 @@ class AlinaBot:
         
         # Start periodic database cleanup (runs every 6 hours)
         logger.info("🧹 Starting periodic database cleanup")
-        application.create_task(self._periodic_cleanup_task())
+        import asyncio
+        asyncio.create_task(self._periodic_cleanup_task())
         
         logger.info("Background tasks started")
     
