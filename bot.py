@@ -799,7 +799,28 @@ class AlinaBot:
         logger.info("🔄 Starting payment status checker")
         self.payment_checker.start(application.bot)
         
+        # Start periodic database cleanup (runs every 6 hours)
+        logger.info("🧹 Starting periodic database cleanup")
+        application.create_task(self._periodic_cleanup_task())
+        
         logger.info("Background tasks started")
+    
+    async def _periodic_cleanup_task(self):
+        """Фоновая задача для периодической очистки БД
+        
+        Запускается каждые 6 часов и удаляет:
+        - Сообщения старше 30 дней
+        - Все кроме последних 100 сообщений для каждого юзера
+        """
+        import asyncio
+        
+        while True:
+            try:
+                await asyncio.sleep(6 * 60 * 60)  # 6 часов
+                logger.info("🧹 Running periodic database cleanup...")
+                self.db.periodic_cleanup_all(keep_last=100, days_to_keep=30)
+            except Exception as e:
+                logger.error(f"Periodic cleanup error: {e}")
     
     async def post_shutdown(self, application: Application) -> None:
         """

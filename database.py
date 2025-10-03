@@ -2,7 +2,6 @@
 
 import json
 import logging
-import random
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -208,13 +207,7 @@ class DialogueDB:
                     (tokens_used, user_id)
                 )
         
-        # Cleanup старых сообщений ПОСЛЕ завершения транзакции (10% шанс)
-        if role == "user" and random.random() < 0.1:
-            try:
-                self._cleanup_old_messages(user_id)
-            except Exception as e:
-                # Просто игнорируем ошибку - это не критично
-                logger.debug(f"Cleanup skipped for user {user_id}: {e}")
+        # Cleanup запускается через периодическую фоновую задачу
     
     def get_dialogue_history(self, user_id: int, limit: int = 20) -> List[Dict[str, str]]:
         """Get conversation history for user with day markers
@@ -498,8 +491,51 @@ class DialogueDB:
         self.save_user_data(user_id, 'block_until', block_until)
         logger.warning(f"User {user_id} temporarily blocked for {minutes} minutes")
     
+    def periodic_cleanup_all(self, keep_last: int = 100, days_to_keep: int = 30):
+        """Периодическая очистка старых сообщений для ВСЕХ пользователей
+        
+        Args:
+            keep_last: Количество последних сообщений для каждого пользователя
+            days_to_keep: Сколько дней хранить сообщения (старше будут удалены)
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Удаляем сообщения старше N дней
+                cursor.execute("""
+                    DELETE FROM messages 
+                    WHERE timestamp < datetime('now', '-' || ? || ' days')
+                """, (days_to_keep,))
+                deleted_old = cursor.rowcount
+                
+                # Для каждого пользователя оставляем только последние N сообщений
+                cursor.execute("SELECT DISTINCT user_id FROM messages")
+                user_ids = [row[0] for row in cursor.fetchall()]
+                
+                total_deleted = deleted_old
+                for user_id in user_ids:
+                    cursor.execute("""
+                        DELETE FROM messages
+                        WHERE id IN (
+                            SELECT id FROM messages
+                            WHERE user_id = ?
+                            ORDER BY timestamp DESC
+                            LIMIT -1 OFFSET ?
+                        )
+                    """, (user_id, keep_last))
+                    total_deleted += cursor.rowcount
+                
+                if total_deleted > 0:
+                    logger.info(f"🧹 Cleanup completed: deleted {total_deleted} messages ({deleted_old} older than {days_to_keep} days)")
+                else:
+                    logger.debug("Cleanup completed: nothing to delete")
+                    
+        except Exception as e:
+            logger.error(f"Cleanup failed: {e}")
+    
     def _cleanup_old_messages(self, user_id: int, keep_last: int = 100):
-        """Remove old messages keeping only recent ones
+        """Remove old messages keeping only recent ones (per-user cleanup)
         
         Args:
             user_id: Telegram user ID
