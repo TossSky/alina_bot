@@ -3,10 +3,13 @@
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
+
+# Moscow timezone (UTC+3)
+MOSCOW_TZ = timezone(timedelta(hours=3))
 
 
 class TimeMCPServer:
@@ -23,7 +26,8 @@ class TimeMCPServer:
         Returns:
             Dictionary with time context information
         """
-        now = datetime.now()
+        # Use Moscow time (UTC+3)
+        now = datetime.now(MOSCOW_TZ)
         
         # Russian day and month names
         weekdays_ru = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
