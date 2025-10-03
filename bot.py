@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 from datetime import datetime
+from typing import Any, Dict
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.constants import ParseMode
@@ -27,6 +28,7 @@ from database import DialogueDB
 from google_docs_service import get_docs_service
 from llm import AlinaLLM, create_image_message, get_image_hash
 from payment_checker import PaymentStatusChecker
+from time_mcp_server import get_enrichment_context, get_time_string
 from payments import (
     SubscriptionManager,
     handle_stars_pre_checkout,
@@ -79,7 +81,8 @@ class AlinaBot:
             self.subscription_manager
         )
         self.docs_service = get_docs_service()
-        self.system_prompt = enrich_prompt(ALINA_PERSONALITY, {})
+        # Initial system prompt without time context (will be enriched per message)
+        self.base_personality = ALINA_PERSONALITY
     
     # ==================== COMMAND HANDLERS ====================
     
@@ -327,7 +330,8 @@ class AlinaBot:
         
         # Prepare message with image for LLM
         current_personality = self.docs_service.get_personality()
-        current_system_prompt = enrich_prompt(current_personality, {})
+        time_context = get_enrichment_context()
+        current_system_prompt = self._build_time_aware_prompt(current_personality, time_context)
         image_message = create_image_message(
             image_bytes=bytes(image_bytes),
             text=user_text,
@@ -435,7 +439,8 @@ class AlinaBot:
         # Build conversation context
         history = self.db.get_dialogue_history(user_id, limit=20)
         current_personality = self.docs_service.get_personality()
-        current_system_prompt = enrich_prompt(current_personality, {})
+        time_context = get_enrichment_context()
+        current_system_prompt = self._build_time_aware_prompt(current_personality, time_context)
         messages = [{"role": "system", "content": current_system_prompt}] + history
         
         # Log token usage for debugging
@@ -504,6 +509,33 @@ class AlinaBot:
                 await query.message.edit_text(response_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     
     # ==================== HELPER METHODS ====================
+    
+    def _build_time_aware_prompt(self, base_personality: str, time_context: Dict[str, Any]) -> str:
+        """Build system prompt with current time and date context
+        
+        Args:
+            base_personality: Base personality from Google Docs
+            time_context: Time context from MCP server
+            
+        Returns:
+            Enhanced system prompt with time awareness
+        """
+        # Add time awareness to the beginning of the prompt
+        time_info = (
+            f"Текущее время: {time_context.get('time_of_day')}, "
+            f"{time_context.get('weekday_name')}, {time_context.get('date')}. "
+        )
+        
+        # Add weekend context if applicable
+        if time_context.get('is_weekend'):
+            time_info += "Сейчас выходные. "
+        
+        # Enrich with mood context based on time
+        enriched = enrich_prompt(base_personality, time_context)
+        
+        # Combine everything
+        return f"{time_info}\n\n{enriched}"
+    
     
     async def _check_limits(self, user_id: int, update: Update) -> bool:
         """

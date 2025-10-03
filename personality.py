@@ -31,14 +31,15 @@ ALINA_PERSONALITY = get_current_personality()
 
 # Mood context templates for different situations
 MOOD_CONTEXTS = {
-    "morning": "только проснулась, хочу кофе и тишину",
-    "work": "на работе, могу отвлекаться",
-    "evening": "дома, расслабленная",
-    "night": "сонная или философское настроение",
-    "tired": "устала, отвечаю короче",
-    "happy": "хорошее настроение, могу пошутить",
-    "annoyed": "раздражена, отвечаю суше",
-    "sad": "грустно, хочется поддержки"
+    "morning": "только проснулась, пью кофе, хочется тишины и спокойствия",
+    "work": "на работе, немного занята но могу поболтать",
+    "evening": "дома, расслабилась после дня, настроение хорошее",
+    "night": "поздно, немного сонная, возможно философское настроение",
+    "weekend": "выходной, отдыхаю, никуда не спешу",
+    "tired": "устала, отвечаю короче чем обычно",
+    "happy": "хорошее настроение, могу пошутить и подурачиться",
+    "annoyed": "немного раздражена, отвечаю суше",
+    "sad": "грустно, хочется поддержки или просто помолчать"
 }
 
 
@@ -57,13 +58,19 @@ def enrich_prompt(base_prompt: str, context: Optional[Dict] = None) -> str:
     
     additions = []
     
+    # Add weekend context first (higher priority)
+    if context.get('is_weekend'):
+        additions.append(MOOD_CONTEXTS["weekend"])
+    
     # Add time-of-day context
     hour = context.get('hour')
     if hour is not None:
         if 5 <= hour < 9:
             additions.append(MOOD_CONTEXTS["morning"])
         elif 9 <= hour < 18:
-            additions.append(MOOD_CONTEXTS["work"])
+            # Only add work context on weekdays
+            if not context.get('is_weekend'):
+                additions.append(MOOD_CONTEXTS["work"])
         elif 18 <= hour < 23:
             additions.append(MOOD_CONTEXTS["evening"])
         else:
