@@ -216,27 +216,42 @@ class DialogueDB:
                     logger.warning(f"Cleanup skipped: {e}")
     
     def get_dialogue_history(self, user_id: int, limit: int = 20) -> List[Dict[str, str]]:
-        """Get conversation history for user (text only, images excluded from context)
+        """Get conversation history for user with day markers
         
         Args:
             user_id: Telegram user ID
             limit: Maximum number of recent messages to retrieve
             
         Returns:
-            List of messages as dictionaries with 'role' and 'content' keys
+            List of messages with 'role' and 'content' keys, including day separators
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
             cursor.execute(
-                "SELECT role, content FROM messages "
+                "SELECT role, content, DATE(timestamp) as msg_date FROM messages "
                 "WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
                 (user_id, limit)
             )
             
             messages = cursor.fetchall()
-            # Return in chronological order (oldest first)
-            return [{"role": role, "content": content} for role, content in reversed(messages)]
+            
+            # Build history with day markers in chronological order
+            result = []
+            last_date = None
+            
+            for role, content, msg_date in reversed(messages):
+                # Add day marker when date changes
+                if last_date is not None and msg_date != last_date:
+                    result.append({
+                        "role": "system",
+                        "content": f"[Новый день: {msg_date}]"
+                    })
+                
+                result.append({"role": role, "content": content})
+                last_date = msg_date
+            
+            return result
     
     def get_user_usage(self, user_id: int) -> Dict:
         """Get user's current usage statistics

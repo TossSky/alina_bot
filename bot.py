@@ -523,7 +523,8 @@ class AlinaBot:
         # Создаем контекст времени для внутреннего использования (Алина знает, но не озвучивает)
         time_awareness = (
             f"Текущий контекст времени (используй эту информацию только если спросят или это релевантно): "
-            f"{time_context.get('time_of_day')}, {time_context.get('weekday_name')}, {time_context.get('date')}"
+            f"{time_context.get('time_of_day')}, {time_context.get('weekday_name')}, {time_context.get('date')}, "
+            f"точное время {time_context.get('formatted_time')}"
         )
         
         if time_context.get('is_weekend'):

@@ -76,11 +76,13 @@ class TimeMCPServer:
         """Get simplified context for enrich_prompt function
         
         Returns:
-            Dictionary with 'hour' key for mood adjustment
+            Dictionary with time info for mood adjustment and exact time
         """
         context = self.get_current_datetime_context()
         return {
             "hour": context["hour"],
+            "minute": context["minute"],
+            "formatted_time": context["formatted_time"],
             "is_weekend": context["is_weekend"],
             "time_of_day": context["time_of_day"],
             "weekday_name": context["weekday_name"],
