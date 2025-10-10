@@ -220,28 +220,31 @@ class DialogueDB:
             now: Текущее время
             
         Returns:
-            Относительная метка ("сегодня", "вчера", "3 дня назад")
+            Относительная метка с точной датой ("сегодня (10 октября)", "вчера (9 октября)")
         """
         # Разница в днях
         days_diff = (now.date() - msg_datetime.date()).days
         
+        # Форматируем точную дату
+        months_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
+                     "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+        exact_date = f"{msg_datetime.day} {months_ru[msg_datetime.month - 1]}"
+        
         if days_diff == 0:
-            return "сегодня"
+            return f"сегодня ({exact_date})"
         elif days_diff == 1:
-            return "вчера"
+            return f"вчера ({exact_date})"
         elif days_diff == 2:
-            return "позавчера"
+            return f"позавчера ({exact_date})"
         elif days_diff <= 6:
             # 3-6 дней назад
             if days_diff == 3 or days_diff == 4:
-                return f"{days_diff} дня назад"
+                return f"{days_diff} дня назад ({exact_date})"
             else:
-                return f"{days_diff} дней назад"
+                return f"{days_diff} дней назад ({exact_date})"
         else:
-            # Для старых сообщений - полная дата
-            months_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
-                         "июля", "августа", "сентября", "октября", "ноября", "декабря"]
-            return f"{msg_datetime.day} {months_ru[msg_datetime.month - 1]}"
+            # Для старых сообщений - только точная дата
+            return exact_date
     
     def _get_time_context(self, msg_datetime: datetime, now: datetime) -> str:
         """Получить временной контекст для сообщения

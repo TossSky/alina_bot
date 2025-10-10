@@ -522,15 +522,15 @@ class AlinaBot:
         """
         # Создаем контекст времени для внутреннего использования (Алина знает, но не озвучивает)
         time_awareness = (
-            f"Текущий контекст времени (используй эту информацию только если спросят или это релевантно): "
-            f"{time_context.get('time_of_day')}, {time_context.get('weekday_name')}, {time_context.get('date')}, "
-            f"точное время {time_context.get('formatted_time')}"
+            f"Текущий контекст времени (используй эту информацию только если спросят или это релевантно):\n"
+            f"СЕГОДНЯ: {time_context.get('date')} ({time_context.get('weekday_name')})\n"
+            f"ВРЕМЯ: {time_context.get('formatted_time')} ({time_context.get('time_of_day')})"
         )
         
         if time_context.get('is_weekend'):
             time_awareness += ", выходной"
         
-        time_awareness += ". Не упоминай дату/день недели/год без необходимости - отвечай естественно как живой человек."
+        time_awareness += ".\n\nВажно: В истории диалога есть метки с точными датами (например 'вчера (9 октября)'), используй их чтобы точно отвечать на вопросы о датах.\nНе упоминай дату/день недели/год без необходимости - отвечай естественно как живой человек."
         
         # Обогащаем промпт с контекстом настроения
         enriched = enrich_prompt(base_personality, time_context)
