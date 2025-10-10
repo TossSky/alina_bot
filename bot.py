@@ -5,6 +5,7 @@ This module contains the main bot application class that handles all user intera
 message processing, subscriptions, and integrations with external services.
 """
 
+import asyncio
 import logging
 import os
 import sys
@@ -801,7 +802,6 @@ class AlinaBot:
         
         # Start periodic database cleanup (runs every 6 hours)
         logger.info("🧹 Starting periodic database cleanup")
-        import asyncio
         asyncio.create_task(self._periodic_cleanup_task())
         
         # Start daily reminder task (runs at 10:00 MSK)
@@ -922,7 +922,6 @@ class AlinaBot:
     
     async def _daily_reminder_task(self):
         """Ежедневная задача отправки напоминаний в 10:00 МСК"""
-        import asyncio
         from datetime import datetime, timedelta
         from time_mcp_server import MOSCOW_TZ
         
@@ -932,7 +931,7 @@ class AlinaBot:
                 now = datetime.now(MOSCOW_TZ)
                 
                 # Целевое время: 10:00 МСК
-                target_time = now.replace(hour=4, minute=28, second=0, microsecond=0)
+                target_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
                 
                 # Если 10:00 уже прошло сегодня, запланируем на завтра
                 if now >= target_time:
@@ -964,7 +963,6 @@ class AlinaBot:
         - Сообщения старше 30 дней
         - Все кроме последних 100 сообщений для каждого юзера
         """
-        import asyncio
         
         while True:
             try:
