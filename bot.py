@@ -931,7 +931,7 @@ class AlinaBot:
                 now = datetime.now(MOSCOW_TZ)
                 
                 # Целевое время: 10:00 МСК
-                target_time = now.replace(hour=4, minute=35, second=0, microsecond=0)
+                target_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
                 
                 # Если 10:00 уже прошло сегодня, запланируем на завтра
                 if now >= target_time:
