@@ -636,6 +636,33 @@ class DialogueDB:
         except Exception as e:
             logger.error(f"Cleanup failed: {e}")
     
+    def get_inactive_users(self, hours_threshold: int = 24) -> List[int]:
+        """Получить список пользователей которые не писали больше N часов
+        
+        Args:
+            hours_threshold: Количество часов неактивности
+            
+        Returns:
+            Список user_id неактивных пользователей
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Находим пользователей у которых последнее сообщение старше N часов
+            cursor.execute("""
+                SELECT DISTINCT m.user_id 
+                FROM messages m
+                INNER JOIN (
+                    SELECT user_id, MAX(timestamp) as last_message
+                    FROM messages
+                    WHERE role = 'user'
+                    GROUP BY user_id
+                ) latest ON m.user_id = latest.user_id
+                WHERE datetime(latest.last_message) < datetime('now', '-' || ? || ' hours')
+            """, (hours_threshold,))
+            
+            return [row[0] for row in cursor.fetchall()]
+    
     def _cleanup_old_messages(self, user_id: int, keep_last: int = 100):
         """Remove old messages keeping only recent ones (per-user cleanup)
         

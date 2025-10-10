@@ -804,7 +804,158 @@ class AlinaBot:
         import asyncio
         asyncio.create_task(self._periodic_cleanup_task())
         
+        # Start daily reminder task (runs at 10:00 MSK)
+        logger.info("🔔 Starting daily reminder task")
+        asyncio.create_task(self._daily_reminder_task())
+        
         logger.info("Background tasks started")
+    
+    async def _generate_reminder_message(self, user_id: int) -> str:
+        """Генерировать персонализированное напоминающее сообщение для неактивного юзера
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            Генерированное сообщение-напоминание
+        """
+        try:
+            # Получаем последние 5 сообщений для контекста
+            history = self.db.get_dialogue_history(user_id, limit=5)
+            
+            # Создаём промпт для генерации напоминания
+            current_personality = self.docs_service.get_personality()
+            time_context = get_enrichment_context()
+            
+            reminder_prompt = (
+                f"Ты - Алина. Сейчас {time_context.get('time_of_day')}, "
+                f"{time_context.get('weekday_name')}, {time_context.get('formatted_time')}.\n\n"
+                f"Пользователь не писал тебе больше суток. Напиши ему короткое (1-2 предложения) "
+                f"непринуждённое сообщение, чтобы напомнить о себе.\n\n"
+                f"Требования:\n"
+                f"- Не используй эмодзи\n"
+                f"- Пиши естественно, как живой человек\n"
+                f"- Можешь сослаться на предыдущий разговор если он был\n"
+                f"- Не будь назойливой, просто напомни о себе\n"
+                f"- НЕ задавай вопросы типа 'как дела?', 'чем занимаешься?' - это скучно\n"
+                f"- Вариируй стиль: можешь пошутить, поделиться мыслью, или просто написать что-то милое\n\n"
+                f"Примеры хороших сообщений:\n"
+                f"- 'прив, давно не общались)'\n"
+                f"- 'что-то тихо стало у тебя'\n"
+                f"- 'вспомнила про тебя, как там дела с [topic from history]?'\n"
+                f"- 'эй, ты живой?'\n"
+                f"- 'скучно мне без твоих сообщений'\n\n"
+                f"Напиши ТОЛЬКО само сообщение, без лишних комментариев."
+            )
+            
+            messages = [
+                {"role": "system", "content": reminder_prompt}
+            ]
+            
+            # Добавляем контекст из истории если есть
+            if history:
+                messages.append({
+                    "role": "system",
+                    "content": f"Последние сообщения с этим пользователем:\n" + 
+                              "\n".join([f"{msg['role']}: {msg['content'][:100]}" for msg in history[-3:]])
+                })
+            
+            # Генерируем ответ
+            reminder_text, _ = await self.llm.generate_response(messages)
+            reminder_text = (reminder_text or "").strip()
+            
+            # Убираем кавычки если они есть
+            if reminder_text.startswith('"') and reminder_text.endswith('"'):
+                reminder_text = reminder_text[1:-1]
+            if reminder_text.startswith("'") and reminder_text.endswith("'"):
+                reminder_text = reminder_text[1:-1]
+            
+            return reminder_text or "прив, давно не общались)"
+            
+        except Exception as e:
+            logger.error(f"Failed to generate reminder for user {user_id}: {e}")
+            return "эй, ты как там?"
+    
+    async def _send_reminder_to_inactive_users(self):
+        """Проверить неактивных юзеров и отправить им напоминания"""
+        try:
+            # Получаем список неактивных пользователей (> 24 часов)
+            inactive_users = self.db.get_inactive_users(hours_threshold=24)
+            
+            if not inactive_users:
+                logger.info("Нет неактивных пользователей для напоминания")
+                return
+            
+            logger.info(f"🔔 Найдено {len(inactive_users)} неактивных пользователей")
+            
+            sent_count = 0
+            failed_count = 0
+            
+            for user_id in inactive_users:
+                try:
+                    # Генерируем персонализированное сообщение
+                    reminder_message = await self._generate_reminder_message(user_id)
+                    
+                    # Отправляем сообщение
+                    await self.application.bot.send_message(
+                        chat_id=user_id,
+                        text=reminder_message
+                    )
+                    
+                    # Сохраняем в историю
+                    self.db.add_message(user_id, "assistant", reminder_message, tokens_used=0)
+                    
+                    sent_count += 1
+                    logger.info(f"✅ Напоминание отправлено юзеру {user_id}")
+                    
+                    # Небольшая задержка чтобы не спамить
+                    await asyncio.sleep(1)
+                    
+                except Exception as e:
+                    failed_count += 1
+                    logger.error(f"❌ Не удалось отправить напоминание юзеру {user_id}: {e}")
+            
+            logger.info(f"📤 Напоминания отправлены: {sent_count} успешно, {failed_count} ошибок")
+            
+        except Exception as e:
+            logger.error(f"Reminder task failed: {e}")
+    
+    async def _daily_reminder_task(self):
+        """Ежедневная задача отправки напоминаний в 10:00 МСК"""
+        import asyncio
+        from datetime import datetime, timedelta
+        from time_mcp_server import MOSCOW_TZ
+        
+        while True:
+            try:
+                # Текущее время в МСК
+                now = datetime.now(MOSCOW_TZ)
+                
+                # Целевое время: 10:00 МСК
+                target_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
+                
+                # Если 10:00 уже прошло сегодня, запланируем на завтра
+                if now >= target_time:
+                    target_time = target_time + timedelta(days=1)
+                
+                # Вычисляем сколько секунд до следующего запуска
+                wait_seconds = (target_time - now).total_seconds()
+                
+                hours = int(wait_seconds // 3600)
+                minutes = int((wait_seconds % 3600) // 60)
+                logger.info(f"🕒 Следующая отправка напоминаний через {hours}ч {minutes}м ({target_time.strftime('%d.%m.%Y %H:%M')})")
+                
+                # Ждём до целевого времени
+                await asyncio.sleep(wait_seconds)
+                
+                # Отправляем напоминания
+                logger.info("🔔 Запуск ежедневной отправки напоминаний...")
+                await self._send_reminder_to_inactive_users()
+                
+            except Exception as e:
+                logger.error(f"Daily reminder task error: {e}")
+                # При ошибке ждём час и пробуем снова
+                await asyncio.sleep(3600)
     
     async def _periodic_cleanup_task(self):
         """Фоновая задача для периодической очистки БД
