@@ -437,6 +437,9 @@ class AlinaBot:
         # Save user message
         self.db.add_message(user_id, "user", user_message)
         
+        # Сбрасываем счётчик ремайндов когда юзер пишет
+        self.db.save_user_data(user_id, 'reminders_sent', 0)
+        
         # Build conversation context
         history = self.db.get_dialogue_history(user_id, limit=20)
         current_personality = self.docs_service.get_personality()
@@ -804,17 +807,18 @@ class AlinaBot:
         logger.info("🧹 Starting periodic database cleanup")
         asyncio.create_task(self._periodic_cleanup_task())
         
-        # Start daily reminder task (runs at 10:00 MSK)
-        logger.info("🔔 Starting daily reminder task")
-        asyncio.create_task(self._daily_reminder_task())
+        # Start reminder scheduler (checks every 5 minutes)
+        logger.info("🔔 Starting reminder scheduler")
+        asyncio.create_task(self._reminder_scheduler_task())
         
         logger.info("Background tasks started")
     
-    async def _generate_reminder_message(self, user_id: int) -> str:
+    async def _generate_reminder_message(self, user_id: int, reminder_number: int) -> str:
         """Генерировать персонализированное напоминающее сообщение для неактивного юзера
         
         Args:
             user_id: Telegram user ID
+            reminder_number: Номер ремайнда (1 или 2)
             
         Returns:
             Генерированное сообщение-напоминание
@@ -824,27 +828,18 @@ class AlinaBot:
             history = self.db.get_dialogue_history(user_id, limit=5)
             
             # Создаём промпт для генерации напоминания
-            current_personality = self.docs_service.get_personality()
             time_context = get_enrichment_context()
             
+            # Получаем базовый промпт из Google Docs
+            base_reminder_prompt = self.docs_service.get_reminder_prompt()
+            
+            # Добавляем контекст времени и номер ремайнда
             reminder_prompt = (
-                f"Ты - Алина. Сейчас {time_context.get('time_of_day')}, "
-                f"{time_context.get('weekday_name')}, {time_context.get('formatted_time')}.\n\n"
-                f"Пользователь не писал тебе больше суток. Напиши ему короткое (1-2 предложения) "
-                f"непринуждённое сообщение, чтобы напомнить о себе.\n\n"
-                f"Требования:\n"
-                f"- Не используй эмодзи\n"
-                f"- Пиши естественно, как живой человек\n"
-                f"- Можешь сослаться на предыдущий разговор если он был\n"
-                f"- Не будь назойливой, просто напомни о себе\n"
-                f"- НЕ задавай вопросы типа 'как дела?', 'чем занимаешься?' - это скучно\n"
-                f"- Вариируй стиль: можешь пошутить, поделиться мыслью, или просто написать что-то милое\n\n"
-                f"Примеры хороших сообщений:\n"
-                f"- 'прив, давно не общались)'\n"
-                f"- 'что-то тихо стало у тебя'\n"
-                f"- 'вспомнила про тебя, как там дела с [topic from history]?'\n"
-                f"- 'эй, ты живой?'\n"
-                f"- 'скучно мне без твоих сообщений'\n\n"
+                f"{base_reminder_prompt}\n\n"
+                f"Контекст:\n"
+                f"- Сейчас {time_context.get('time_of_day')}, "
+                f"{time_context.get('weekday_name')}, {time_context.get('formatted_time')}\n"
+                f"- Это {'первое' if reminder_number == 1 else 'второе'} напоминание\n\n"
                 f"Напиши ТОЛЬКО само сообщение, без лишних комментариев."
             )
             
@@ -876,25 +871,39 @@ class AlinaBot:
             logger.error(f"Failed to generate reminder for user {user_id}: {e}")
             return "эй, ты как там?"
     
-    async def _send_reminder_to_inactive_users(self):
-        """Проверить неактивных юзеров и отправить им напоминания"""
+    async def _send_reminders(self, reminder_number: int, hours_threshold: int):
+        """Отправить ремайнды юзерам которые не писали определённое время
+        
+        Args:
+            reminder_number: Номер ремайнда (1 или 2)
+            hours_threshold: Порог неактивности в часах
+        """
         try:
-            # Получаем список неактивных пользователей (> 24 часов)
-            inactive_users = self.db.get_inactive_users(hours_threshold=24)
+            # Получаем список неактивных пользователей
+            inactive_users = self.db.get_inactive_users(hours_threshold=hours_threshold)
             
             if not inactive_users:
-                logger.info("Нет неактивных пользователей для напоминания")
+                logger.info(f"Нет пользователей для ремайнда #{reminder_number}")
                 return
             
-            logger.info(f"🔔 Найдено {len(inactive_users)} неактивных пользователей")
+            logger.info(f"🔔 Найдено {len(inactive_users)} пользователей для ремайнда #{reminder_number}")
             
             sent_count = 0
             failed_count = 0
+            skipped_count = 0
             
             for user_id in inactive_users:
                 try:
+                    # Проверяем сколько ремайндов уже отправлено
+                    reminders_sent = self.db.get_user_data(user_id, 'reminders_sent', 0)
+                    
+                    # Если уже отправлено 2 ремайнда, пропускаем
+                    if reminders_sent >= 2:
+                        skipped_count += 1
+                        continue
+                    
                     # Генерируем персонализированное сообщение
-                    reminder_message = await self._generate_reminder_message(user_id)
+                    reminder_message = await self._generate_reminder_message(user_id, reminder_number)
                     
                     # Отправляем сообщение
                     await self.application.bot.send_message(
@@ -902,59 +911,73 @@ class AlinaBot:
                         text=reminder_message
                     )
                     
-                    # Сохраняем в историю
+                    # Сохраняем в историю (ремайнды тоже сохраняются!)
                     self.db.add_message(user_id, "assistant", reminder_message, tokens_used=0)
                     
+                    # Увеличиваем счётчик отправленных ремайндов
+                    self.db.save_user_data(user_id, 'reminders_sent', reminders_sent + 1)
+                    
                     sent_count += 1
-                    logger.info(f"✅ Напоминание отправлено юзеру {user_id}")
+                    logger.info(f"✅ Ремайнд #{reminder_number} отправлен юзеру {user_id}")
                     
                     # Небольшая задержка чтобы не спамить
                     await asyncio.sleep(1)
                     
                 except Exception as e:
                     failed_count += 1
-                    logger.error(f"❌ Не удалось отправить напоминание юзеру {user_id}: {e}")
+                    logger.error(f"❌ Не удалось отправить ремайнд юзеру {user_id}: {e}")
             
-            logger.info(f"📤 Напоминания отправлены: {sent_count} успешно, {failed_count} ошибок")
+            logger.info(
+                f"📤 Ремайнды #{reminder_number}: "
+                f"{sent_count} отправлено, {failed_count} ошибок, {skipped_count} пропущено (лимит)"
+            )
             
         except Exception as e:
-            logger.error(f"Reminder task failed: {e}")
+            logger.error(f"Reminder task #{reminder_number} failed: {e}")
     
-    async def _daily_reminder_task(self):
-        """Ежедневная задача отправки напоминаний в 10:00 МСК"""
+    async def _reminder_scheduler_task(self):
+        """Планировщик ремайндов:
+        - Первый ремайнд: через 24 часа неактивности, в обед (12-13 часов)
+        - Второй ремайнд: через 48 часов неактивности, вечером (18-20 часов)
+        """
         from datetime import datetime, timedelta
         from time_mcp_server import MOSCOW_TZ
+        import random
         
         while True:
             try:
-                # Текущее время в МСК
                 now = datetime.now(MOSCOW_TZ)
                 
-                # Целевое время: 10:00 МСК
-                target_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
+                # Проверяем каждые 5 минут
+                await asyncio.sleep(300)
                 
-                # Если 10:00 уже прошло сегодня, запланируем на завтра
-                if now >= target_time:
-                    target_time = target_time + timedelta(days=1)
+                current_hour = now.hour
                 
-                # Вычисляем сколько секунд до следующего запуска
-                wait_seconds = (target_time - now).total_seconds()
+                # Первый ремайнд: в обед (12-13 часов) для тех кто не писал 24+ часов
+                if 12 <= current_hour < 13:
+                    # Проверяем, отправляли ли уже ремайнды в этот час
+                    last_reminder_1 = self.db.get_user_data(0, 'last_reminder_1_hour', '')
+                    current_hour_key = now.strftime('%Y-%m-%d-%H')
+                    
+                    if last_reminder_1 != current_hour_key:
+                        logger.info("🔔 Отправка первых ремайндов (обед)...")
+                        await self._send_reminders(reminder_number=1, hours_threshold=24)
+                        self.db.save_user_data(0, 'last_reminder_1_hour', current_hour_key)
                 
-                hours = int(wait_seconds // 3600)
-                minutes = int((wait_seconds % 3600) // 60)
-                logger.info(f"🕒 Следующая отправка напоминаний через {hours}ч {minutes}м ({target_time.strftime('%d.%m.%Y %H:%M')})")
-                
-                # Ждём до целевого времени
-                await asyncio.sleep(wait_seconds)
-                
-                # Отправляем напоминания
-                logger.info("🔔 Запуск ежедневной отправки напоминаний...")
-                await self._send_reminder_to_inactive_users()
+                # Второй ремайнд: вечером (18-20 часов) для тех кто не писал 48+ часов
+                elif 18 <= current_hour < 20:
+                    # Проверяем, отправляли ли уже ремайнды в этот час
+                    last_reminder_2 = self.db.get_user_data(0, 'last_reminder_2_hour', '')
+                    current_hour_key = now.strftime('%Y-%m-%d-%H')
+                    
+                    if last_reminder_2 != current_hour_key:
+                        logger.info("🔔 Отправка вторых ремайндов (вечер)...")
+                        await self._send_reminders(reminder_number=2, hours_threshold=48)
+                        self.db.save_user_data(0, 'last_reminder_2_hour', current_hour_key)
                 
             except Exception as e:
-                logger.error(f"Daily reminder task error: {e}")
-                # При ошибке ждём час и пробуем снова
-                await asyncio.sleep(3600)
+                logger.error(f"Reminder scheduler error: {e}")
+                await asyncio.sleep(300)
     
     async def _periodic_cleanup_task(self):
         """Фоновая задача для периодической очистки БД

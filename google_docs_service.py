@@ -16,6 +16,7 @@ class GoogleDocsService:
     # Google Docs URLs for FAQ and personality configuration
     FAQ_DOC_URL = "https://docs.google.com/document/d/1hhd4wKzL21MUyYqm7TwfEVKDqr9guWowcMDFkytEtkE/edit?usp=sharing"
     PERSONALITY_DOC_URL = "https://docs.google.com/document/d/1oLwiaPGMkb-VqMQCJmDwOWBPJOYfm99gk4oqhNPUPEo/edit"
+    REMINDER_PROMPT_DOC_URL = "https://docs.google.com/document/d/1Zs7ugmYnGR8IX0MO-JMbngxPCKeScN24K2hIMZmxK5o/edit"
     
     # Fallback content used when Google Docs is unavailable
     FALLBACK_FAQ = """**FAQ**
@@ -29,6 +30,10 @@ class GoogleDocsService:
     FALLBACK_PERSONALITY = """Ты — Алина, обычная девушка 24 лет из Москвы. 
 Отвечаешь как живой человек, без формализма."""
     
+    FALLBACK_REMINDER_PROMPT = """Ты - Алина. Пользователь не писал тебе некоторое время. 
+Напиши ему короткое (1-2 предложения) непринуждённое сообщение, чтобы напомнить о себе.
+Не используй эмодзи. Пиши естественно, как живой человек."""
+    
     def __init__(self):
         """Initialize service with empty cache"""
         self._faq_cache: Optional[str] = None
@@ -36,6 +41,9 @@ class GoogleDocsService:
         
         self._personality_cache: Optional[str] = None
         self._personality_updated: Optional[datetime] = None
+        
+        self._reminder_prompt_cache: Optional[str] = None
+        self._reminder_prompt_updated: Optional[datetime] = None
         
         self._update_task: Optional[asyncio.Task] = None
         self._cache_ttl = timedelta(minutes=1)
@@ -169,6 +177,26 @@ class GoogleDocsService:
             logger.error(f"Error updating personality: {e}")
             return False
     
+    async def update_reminder_prompt(self) -> bool:
+        """Update reminder prompt cache from Google Docs
+        
+        Returns:
+            True if update succeeded, False otherwise
+        """
+        try:
+            content = await self._fetch_doc_content(self.REMINDER_PROMPT_DOC_URL)
+            if content:
+                self._reminder_prompt_cache = content
+                self._reminder_prompt_updated = datetime.now()
+                logger.info("Reminder prompt cache updated successfully")
+                return True
+            else:
+                logger.warning("Failed to update reminder prompt, keeping old cache")
+                return False
+        except Exception as e:
+            logger.error(f"Error updating reminder prompt: {e}")
+            return False
+    
     async def _periodic_update(self):
         """Background task that periodically updates cached documents"""
         logger.info("Starting periodic Google Docs update task")
@@ -176,6 +204,7 @@ class GoogleDocsService:
         # Initial load
         await self.update_faq()
         await self.update_personality()
+        await self.update_reminder_prompt()
         
         while True:
             try:
@@ -185,6 +214,7 @@ class GoogleDocsService:
                 logger.debug("Running periodic update...")
                 await self.update_faq()
                 await self.update_personality()
+                await self.update_reminder_prompt()
                 
             except asyncio.CancelledError:
                 logger.info("Periodic update task cancelled")
@@ -228,6 +258,18 @@ class GoogleDocsService:
         logger.warning("Personality cache is empty, using fallback")
         return self.FALLBACK_PERSONALITY
     
+    def get_reminder_prompt(self) -> str:
+        """Get reminder prompt from cache or fallback
+        
+        Returns:
+            Reminder prompt text
+        """
+        if self._reminder_prompt_cache:
+            return self._reminder_prompt_cache
+        
+        logger.warning("Reminder prompt cache is empty, using fallback")
+        return self.FALLBACK_REMINDER_PROMPT
+    
     def is_faq_stale(self) -> bool:
         """Check if FAQ cache is stale (older than TTL)"""
         if self._faq_updated is None:
@@ -256,6 +298,11 @@ class GoogleDocsService:
                 "cached": self._personality_cache is not None,
                 "updated": self._personality_updated.isoformat() if self._personality_updated else None,
                 "stale": self.is_personality_stale()
+            },
+            "reminder_prompt": {
+                "cached": self._reminder_prompt_cache is not None,
+                "updated": self._reminder_prompt_updated.isoformat() if self._reminder_prompt_updated else None,
+                "stale": self._reminder_prompt_updated is None or datetime.now() - self._reminder_prompt_updated > self._cache_ttl
             }
         }
 
