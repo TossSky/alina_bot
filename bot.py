@@ -84,6 +84,10 @@ class AlinaBot:
         self.docs_service = get_docs_service()
         # Initial system prompt without time context (will be enriched per message)
         self.base_personality = ALINA_PERSONALITY
+        
+        # Reminder tracking (in-memory to avoid DB issues)
+        self._last_reminder_1_date = None
+        self._last_reminder_2_date = None
     
     # ==================== COMMAND HANDLERS ====================
     
@@ -830,17 +834,22 @@ class AlinaBot:
             # Создаём промпт для генерации напоминания
             time_context = get_enrichment_context()
             
-            # Получаем базовый промпт из Google Docs
-            base_reminder_prompt = self.docs_service.get_reminder_prompt()
+            # ВАЖНО: Получаем основной промпт личности Алины
+            personality = self.docs_service.get_personality()
             
-            # Добавляем контекст времени и номер ремайнда
+            # Получаем инструкции для ремайндера
+            reminder_instructions = self.docs_service.get_reminder_prompt()
+            
+            # Собираем финальный промпт с личностью + инструкциями
             reminder_prompt = (
-                f"{base_reminder_prompt}\n\n"
+                f"{personality}\n\n"
+                f"---\n\n"
+                f"{reminder_instructions}\n\n"
                 f"Контекст:\n"
                 f"- Сейчас {time_context.get('time_of_day')}, "
                 f"{time_context.get('weekday_name')}, {time_context.get('formatted_time')}\n"
                 f"- Это {'первое' if reminder_number == 1 else 'второе'} напоминание\n\n"
-                f"Напиши ТОЛЬКО само сообщение, без лишних комментариев."
+                f"Напиши ТОЛЬКО само сообщение-напоминание, без лишних комментариев."
             )
             
             messages = [
@@ -947,33 +956,29 @@ class AlinaBot:
         while True:
             try:
                 now = datetime.now(MOSCOW_TZ)
+                current_date = now.date()
+                current_hour = now.hour
                 
                 # Проверяем каждые 5 минут
                 await asyncio.sleep(300)
                 
-                current_hour = now.hour
-                
                 # Первый ремайнд: в обед (12-13 часов) для тех кто не писал 24+ часов
                 if 12 <= current_hour < 13:
-                    # Проверяем, отправляли ли уже ремайнды в этот час
-                    last_reminder_1 = self.db.get_user_data(0, 'last_reminder_1_hour', '')
-                    current_hour_key = now.strftime('%Y-%m-%d-%H')
-                    
-                    if last_reminder_1 != current_hour_key:
+                    # Проверяем, отправляли ли уже ремайнды сегодня в этот временной слот
+                    if self._last_reminder_1_date != current_date:
                         logger.info("🔔 Отправка первых ремайндов (обед)...")
                         await self._send_reminders(reminder_number=1, hours_threshold=24)
-                        self.db.save_user_data(0, 'last_reminder_1_hour', current_hour_key)
+                        self._last_reminder_1_date = current_date
+                        logger.info(f"✅ Первый ремайнд выполнен, следующий завтра")
                 
                 # Второй ремайнд: вечером (18-20 часов) для тех кто не писал 48+ часов
                 elif 18 <= current_hour < 20:
-                    # Проверяем, отправляли ли уже ремайнды в этот час
-                    last_reminder_2 = self.db.get_user_data(0, 'last_reminder_2_hour', '')
-                    current_hour_key = now.strftime('%Y-%m-%d-%H')
-                    
-                    if last_reminder_2 != current_hour_key:
+                    # Проверяем, отправляли ли уже ремайнды сегодня в этот временной слот
+                    if self._last_reminder_2_date != current_date:
                         logger.info("🔔 Отправка вторых ремайндов (вечер)...")
                         await self._send_reminders(reminder_number=2, hours_threshold=48)
-                        self.db.save_user_data(0, 'last_reminder_2_hour', current_hour_key)
+                        self._last_reminder_2_date = current_date
+                        logger.info(f"✅ Второй ремайнд выполнен, следующий завтра")
                 
             except Exception as e:
                 logger.error(f"Reminder scheduler error: {e}")
